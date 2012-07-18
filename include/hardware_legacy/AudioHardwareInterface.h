@@ -234,6 +234,8 @@ public:
      */
     virtual status_t    setMode(int mode) = 0;
 
+    virtual status_t    setFmRxMode(int mode) = 0;
+
     // mic mute
     virtual status_t    setMicMute(bool state) = 0;
     virtual status_t    getMicMute(bool* state) = 0;
