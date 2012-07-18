@@ -84,7 +84,7 @@ static char primary_iface[PROPERTY_VALUE_MAX];
 #endif
 
 #ifndef WIFI_DRIVER_FW_PATH_PARAM
-#define WIFI_DRIVER_FW_PATH_PARAM	"/sys/module/wlan/parameters/fwpath"
+#define WIFI_DRIVER_FW_PATH_PARAM	"/sys/module/wl12xx/parameters/fwpath"
 #endif
 
 #define WIFI_DRIVER_LOADER_DELAY	1000000
@@ -123,9 +123,24 @@ static int is_primary_interface(const char *ifname)
 {
     //Treat NULL as primary interface to allow control
     //on STA without an interface
-    if (ifname == NULL || !strncmp(ifname, primary_iface, strlen(primary_iface))) {
-        return 1;
+    // primary iface is the name of wifi.interface property.
+    // TI wifi.interface property is wlan0:0 so return always 1 for TI
+    // there is no secondary interface ( p2p not supported with TI)
+    char *first_token = NULL;
+    char sta_interface[PATH_MAX];
+    if (primary_iface == NULL) {
+        ALOGE("primary_iface is NULL\n");
+        return 0;
     }
+    snprintf(sta_interface, sizeof(sta_interface), "%s", primary_iface);
+    ALOGD("primary_iface is %s\n", primary_iface);
+    first_token = strtok(sta_interface,":");
+    if (first_token) {
+        if (ifname == NULL ||
+           (!strncmp(ifname, sta_interface, strlen(sta_interface))))
+            return 1;
+    } else
+        ALOGE("interface null : sta_interface is %s\n", sta_interface);
     return 0;
 }
 
@@ -575,7 +590,6 @@ int wifi_start_supplicant(int p2p_supported)
     }
 #endif
     property_get("wifi.interface", primary_iface, WIFI_TEST_INTERFACE);
-
     property_set("ctl.start", supplicant_name);
     sched_yield();
 
