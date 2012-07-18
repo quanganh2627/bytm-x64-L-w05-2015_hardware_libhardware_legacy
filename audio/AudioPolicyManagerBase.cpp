@@ -2960,10 +2960,12 @@ float AudioPolicyManagerBase::computeVolume(int stream,
     // - if music is playing, always limit the volume to current music volume,
     // with a minimum threshold at -36dB so that notification is always perceived.
     const routing_strategy stream_strategy = getStrategy((AudioSystem::stream_type)stream);
-    if ((device & (AUDIO_DEVICE_OUT_BLUETOOTH_A2DP |
-            AUDIO_DEVICE_OUT_BLUETOOTH_A2DP_HEADPHONES |
-            AUDIO_DEVICE_OUT_WIRED_HEADSET |
-            AUDIO_DEVICE_OUT_WIRED_HEADPHONE)) &&
+
+    if ((device & (AudioSystem::DEVICE_OUT_BLUETOOTH_A2DP |
+            AudioSystem::DEVICE_OUT_BLUETOOTH_A2DP_HEADPHONES |
+            AudioSystem::DEVICE_OUT_WIRED_HEADSET |
+            AudioSystem::DEVICE_OUT_WIDI|
+            AudioSystem::DEVICE_OUT_WIRED_HEADPHONE)) &&
         ((stream_strategy == STRATEGY_SONIFICATION)
                 || (stream_strategy == STRATEGY_SONIFICATION_RESPECTFUL)
                 || (stream == AudioSystem::SYSTEM)
