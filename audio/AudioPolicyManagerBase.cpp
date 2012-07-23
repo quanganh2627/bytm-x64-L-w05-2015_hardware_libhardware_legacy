@@ -3073,6 +3073,14 @@ float AudioPolicyManagerBase::computeVolume(int stream,
 
     volume = volIndexToAmpl(device, streamDesc, index);
 
+    // if a headset is connected and stream is ENFORCED_AUDIBLE (Camera shutter sound),
+    // then to avoid sound level burst in user's ears, attenuate the volume by 6dB.
+    if ((device &
+        (AudioSystem::DEVICE_OUT_WIRED_HEADSET |
+        AudioSystem::DEVICE_OUT_WIRED_HEADPHONE)) &&
+        (stream == AudioSystem::ENFORCED_AUDIBLE)) {
+        volume *= SONIFICATION_HEADSET_VOLUME_FACTOR;
+    }
     // if a headset is connected, apply the following rules to ring tones and notifications
     // to avoid sound level bursts in user's ears:
     // - always attenuate ring tones and notifications volume by 6dB
