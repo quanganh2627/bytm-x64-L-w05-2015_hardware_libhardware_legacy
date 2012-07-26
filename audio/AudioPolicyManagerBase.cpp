@@ -307,7 +307,7 @@ void AudioPolicyManagerBase::setPhoneState(int state)
     }
 
     // if leaving call state, handle special case of active streams
-    // pertaining to sonification strategy see handleIncallSonification()
+    // pertaining to sonification strategies see handleIncallSonification()
     if (isInCall()) {
         ALOGV("setPhoneState() in call state management: new state is %d", state);
         for (int stream = 0; stream < AudioSystem::NUM_STREAM_TYPES; stream++) {
@@ -315,7 +315,7 @@ void AudioPolicyManagerBase::setPhoneState(int state)
         }
     }
 
-    // store previous phone state for management of sonification strategy below
+    // store previous phone state for management of sonification strategies below
     int oldState = mPhoneState;
     mPhoneState = state;
 
@@ -698,8 +698,7 @@ status_t AudioPolicyManagerBase::startOutput(audio_io_handle_t output,
     if (outputDesc->mRefCount[stream] == 1) {
         audio_devices_t newDevice = getNewDevice(output, false /*fromCache*/);
         routing_strategy strategy = getStrategy(stream);
-        bool shouldWait = (strategy == STRATEGY_SONIFICATION) ||
-                            (strategy == STRATEGY_SONIFICATION_RESPECTFUL);
+        bool shouldWait = isSonificationStrategy(strategy);
         uint32_t waitMs = 0;
         bool force = false;
         for (size_t i = 0; i < mOutputs.size(); i++) {
@@ -1945,6 +1944,7 @@ void AudioPolicyManagerBase::checkOutputForAllStrategies()
     checkOutputForStrategy(STRATEGY_PHONE);
     checkOutputForStrategy(STRATEGY_SONIFICATION);
     checkOutputForStrategy(STRATEGY_SONIFICATION_RESPECTFUL);
+    checkOutputForStrategy(STRATEGY_SONIFICATION_LOCAL);
     checkOutputForStrategy(STRATEGY_MEDIA);
     checkOutputForStrategy(STRATEGY_DTMF);
 }
@@ -2020,19 +2020,23 @@ audio_devices_t AudioPolicyManagerBase::getNewDevice(audio_io_handle_t output, b
     //      use device for strategy enforced audible
     // 2: we are in call or the strategy phone is active on the output:
     //      use device for strategy phone
-    // 3: the strategy sonification is active on the output:
+    // 3: the strategy sonification_local is active on the output:
+    //      use device for strategy sonification_local
+    // 4: the strategy sonification is active on the output:
     //      use device for strategy sonification
-    // 4: the strategy "respectful" sonification is active on the output:
+    // 5: the strategy "respectful" sonification is active on the output:
     //      use device for strategy "respectful" sonification
-    // 5: the strategy media is active on the output:
+    // 6: the strategy media is active on the output:
     //      use device for strategy media
-    // 6: the strategy DTMF is active on the output:
+    // 7: the strategy DTMF is active on the output:
     //      use device for strategy DTMF
     if (outputDesc->isStrategyActive(STRATEGY_ENFORCED_AUDIBLE)) {
         device = getDeviceForStrategy(STRATEGY_ENFORCED_AUDIBLE, fromCache);
     } else if (isInCall() ||
                     outputDesc->isStrategyActive(STRATEGY_PHONE)) {
         device = getDeviceForStrategy(STRATEGY_PHONE, fromCache);
+    }  else if (outputDesc->isStrategyActive(STRATEGY_SONIFICATION_LOCAL)) {
+        device = getDeviceForStrategy(STRATEGY_SONIFICATION_LOCAL, fromCache);
     } else if (outputDesc->isStrategyActive(STRATEGY_SONIFICATION)) {
         device = getDeviceForStrategy(STRATEGY_SONIFICATION, fromCache);
     } else if (outputDesc->isStrategyActive(STRATEGY_SONIFICATION_RESPECTFUL)) {
@@ -2073,6 +2077,7 @@ AudioPolicyManagerBase::routing_strategy AudioPolicyManagerBase::getStrategy(
     case AudioSystem::BLUETOOTH_SCO:
         return STRATEGY_PHONE;
     case AudioSystem::RING:
+        return STRATEGY_SONIFICATION_LOCAL;
     case AudioSystem::ALARM:
         return STRATEGY_SONIFICATION;
     case AudioSystem::NOTIFICATION:
@@ -2226,6 +2231,7 @@ audio_devices_t AudioPolicyManagerBase::getDeviceForStrategy(routing_strategy st
         }
     break;
 
+    case STRATEGY_SONIFICATION_LOCAL:
     case STRATEGY_SONIFICATION:
 
         // If incall, just select the STRATEGY_PHONE device: The rest of the behavior is handled by
@@ -2241,12 +2247,12 @@ audio_devices_t AudioPolicyManagerBase::getDeviceForStrategy(routing_strategy st
         // except:
         //   - when in call where it doesn't default to STRATEGY_PHONE behavior
         //   - in countries where not enforced in which case it follows STRATEGY_MEDIA
-
-        if ((strategy == STRATEGY_SONIFICATION) ||
-                (mForceUse[AudioSystem::FOR_SYSTEM] == AudioSystem::FORCE_SYSTEM_ENFORCED)) {
-            device = mAvailableOutputDevices & AUDIO_DEVICE_OUT_SPEAKER;
+        if (strategy == STRATEGY_SONIFICATION || strategy == STRATEGY_SONIFICATION_LOCAL ||
+                !mStreams[AUDIO_STREAM_ENFORCED_AUDIBLE].mCanBeMuted) {
+            device = mAvailableOutputDevices & AudioSystem::DEVICE_OUT_SPEAKER;
+ 
             if (device == AUDIO_DEVICE_NONE) {
-                ALOGE("getDeviceForStrategy() speaker device not found for STRATEGY_SONIFICATION");
+                ALOGE("getDeviceForStrategy() speaker device not found for STRATEGY_SONIFICATION and STRATEGY_SONIFICATION_LOCAL");
             }
         }
         // The second device used for sonification is the same as the device used by media strategy
@@ -2297,7 +2303,7 @@ audio_devices_t AudioPolicyManagerBase::getDeviceForStrategy(routing_strategy st
         }
 
         // device is DEVICE_OUT_SPEAKER if we come from case STRATEGY_SONIFICATION or
-        // STRATEGY_ENFORCED_AUDIBLE, AUDIO_DEVICE_NONE otherwise
+        // STRATEGY_ENFORCED_AUDIBLE or STRATEGY_SONIFICATION_LOCAL, AUDIO_DEVICE_NONE otherwise
         device |= device2;
         if (device) break;
         device = mDefaultOutputDevice;
@@ -2959,8 +2965,7 @@ void AudioPolicyManagerBase::handleIncallSonification(int stream, bool starting,
     // if stateChange is true, we are called from setPhoneState() and we must mute or unmute as
     // many times as there are active tracks on the output
     const routing_strategy stream_strategy = getStrategy((AudioSystem::stream_type)stream);
-    if ((stream_strategy == STRATEGY_SONIFICATION) ||
-            ((stream_strategy == STRATEGY_SONIFICATION_RESPECTFUL))) {
+    if (isStreamOfTypeSonification((AudioSystem::stream_type)stream)) {
         AudioOutputDescriptor *outputDesc = mOutputs.valueFor(mPrimaryOutput);
         ALOGV("handleIncallSonification() stream %d starting %d device %x stateChange %d",
                 stream, starting, outputDesc->mDevice, stateChange);
@@ -2991,6 +2996,20 @@ void AudioPolicyManagerBase::handleIncallSonification(int stream, bool starting,
             }
         }
     }
+}
+
+bool AudioPolicyManagerBase::isSonificationStrategy(routing_strategy strategy) {
+    return ((strategy == STRATEGY_SONIFICATION) ||
+            (strategy == STRATEGY_SONIFICATION_LOCAL) ||
+            (strategy == STRATEGY_SONIFICATION_RESPECTFUL));
+}
+
+bool AudioPolicyManagerBase::isStreamOfTypeSonification(AudioSystem::stream_type stream) {
+    routing_strategy strategy = getStrategy(stream);
+
+    return ((strategy == STRATEGY_SONIFICATION) ||
+            (strategy == STRATEGY_SONIFICATION_LOCAL) ||
+            (strategy == STRATEGY_SONIFICATION_RESPECTFUL));
 }
 
 bool AudioPolicyManagerBase::isInCall()
