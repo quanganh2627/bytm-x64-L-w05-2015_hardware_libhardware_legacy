@@ -155,6 +155,7 @@ protected:
             STRATEGY_PHONE,
             STRATEGY_SONIFICATION,
             STRATEGY_SONIFICATION_RESPECTFUL,
+            STRATEGY_SONIFICATION_LOCAL,
             STRATEGY_DTMF,
             STRATEGY_ENFORCED_AUDIBLE,
             NUM_STRATEGIES
@@ -405,6 +406,10 @@ protected:
 
         // true if given state represents a device in a telephony or VoIP call
         virtual bool isStateInCall(int state);
+        // true if sonification strategy is of type SONIFICATION, SONIFICATION_RESPECTFUL or SONIFICATION_LOCAL
+        static bool isSonificationStrategy(routing_strategy strategy);
+        // true if stream is of type SONIFICATION, SONIFICATION_RESPECTFUL or SONIFICATION_LOCAL
+        static bool isStreamOfTypeSonification(AudioSystem::stream_type stream);
 
         // when a device is connected, checks if an open output can be routed
         // to this device. If none is open, tries to open one of the available outputs.
