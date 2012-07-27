@@ -34,6 +34,7 @@
 #include <hardware/audio.h>
 #include <math.h>
 #include <hardware_legacy/audio_policy_conf.h>
+#include <cutils/properties.h>
 
 namespace android_audio_legacy {
 
@@ -2477,6 +2478,14 @@ AudioPolicyManagerBase::IOProfile *AudioPolicyManagerBase::getInputProfile(audio
 audio_devices_t AudioPolicyManagerBase::getDeviceForInputSource(int inputSource)
 {
     uint32_t device = AUDIO_DEVICE_NONE;
+    // Retrieve the camera facing direction.
+    char cameraFacing[PROPERTY_VALUE_MAX];
+    // Pass the third parameter as "1", incase the property value is
+    // not retrieved, the default builtin mic should be used
+    property_get("media.camera.facing", cameraFacing, "1");
+    // front facing camera(i.e. same side as screen) will have value 1(one)
+    // and back facing camera(i.e. opposite side of screen) will have 0(zero)
+    bool cameraFacingBack = (cameraFacing[0] == '0') ? true : false;
 
     switch(inputSource) {
     case AUDIO_SOURCE_DEFAULT:
@@ -2493,10 +2502,11 @@ audio_devices_t AudioPolicyManagerBase::getDeviceForInputSource(int inputSource)
         }
         break;
     case AUDIO_SOURCE_CAMCORDER:
-        if (mAvailableInputDevices & AUDIO_DEVICE_IN_BACK_MIC) {
-            device = AUDIO_DEVICE_IN_BACK_MIC;
-        } else if (mAvailableInputDevices & AUDIO_DEVICE_IN_BUILTIN_MIC) {
-            device = AUDIO_DEVICE_IN_BUILTIN_MIC;
+        // Use the Mic which is in same direction as the orientation of camera
+        if ((mAvailableInputDevices & AudioSystem::DEVICE_IN_BACK_MIC) && cameraFacingBack) {
+            device = AudioSystem::DEVICE_IN_BACK_MIC;
+        } else {
+            device = AudioSystem::DEVICE_IN_BUILTIN_MIC;
         }
         break;
     case AUDIO_SOURCE_VOICE_UPLINK:
