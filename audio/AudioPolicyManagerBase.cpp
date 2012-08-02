@@ -2529,11 +2529,13 @@ audio_devices_t AudioPolicyManagerBase::getDeviceForStrategy(routing_strategy st
             device2 = mAvailableOutputDevices & AUDIO_DEVICE_OUT_USB_DEVICE;
         }
         if (device2 == AUDIO_DEVICE_NONE) {
-            device2 = mAvailableOutputDevices & AUDIO_DEVICE_OUT_DGTL_DOCK_HEADSET;
+            device2 = mAvailableOutputDevices & AudioSystem::DEVICE_OUT_DGTL_DOCK_HEADSET;
         }
-        if ((device2 == AUDIO_DEVICE_NONE) && (strategy != STRATEGY_SONIFICATION)) {
-            // no sonification on aux digital (e.g. HDMI)
-            device2 = mAvailableOutputDevices & AUDIO_DEVICE_OUT_AUX_DIGITAL;
+        if ((device2 == AUDIO_DEVICE_NONE) && (strategy != STRATEGY_SONIFICATION_LOCAL)) {
+            device2 = mAvailableOutputDevices & AudioSystem::DEVICE_OUT_AUX_DIGITAL;
+        }
+        if ((device2 == AUDIO_DEVICE_NONE) && (strategy != STRATEGY_SONIFICATION_LOCAL)) {
+            device2 = mAvailableOutputDevices & AudioSystem::DEVICE_OUT_WIDI;
         }
         if ((device2 == AUDIO_DEVICE_NONE) &&
                 (mForceUse[AudioSystem::FOR_DOCK] == AudioSystem::FORCE_ANALOG_DOCK)) {
