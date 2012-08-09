@@ -22,6 +22,7 @@
 #include <sys/socket.h>
 #include <unistd.h>
 #include <poll.h>
+#include <pthread.h>
 
 #include "hardware_legacy/wifi.h"
 #include "libwpa_client/wpa_ctrl.h"
@@ -115,6 +116,7 @@ static unsigned char dummy_key[21] = { 0x02, 0x11, 0xbe, 0x33, 0x43, 0x35,
                                        0x1c, 0xd3, 0xee, 0xff, 0xf1, 0xe2,
                                        0xf3, 0xf4, 0xf5 };
 
+static pthread_mutex_t suppl_mutex = PTHREAD_MUTEX_INITIALIZER;
 /* Is either SUPPLICANT_NAME or P2P_SUPPLICANT_NAME */
 static char supplicant_name[PROPERTY_VALUE_MAX];
 /* Is either SUPP_PROP_NAME or P2P_PROP_NAME */
@@ -850,6 +852,8 @@ void wifi_close_supplicant_connection(const char *ifname)
 {
     char supp_status[PROPERTY_VALUE_MAX] = {'\0'};
     int count = 50; /* wait at most 5 seconds to ensure init has stopped stupplicant */
+    LOGD("Close connection to supplicant\n");
+    pthread_mutex_lock(&suppl_mutex);
 
     if (is_primary_interface(ifname)) {
         wifi_close_sockets(PRIMARY);
@@ -866,11 +870,14 @@ void wifi_close_supplicant_connection(const char *ifname)
 
     while (count-- > 0) {
         if (property_get(supplicant_prop_name, supp_status, NULL)) {
-            if (strcmp(supp_status, "stopped") == 0)
+            if (strcmp(supp_status, "stopped") == 0) {
+                pthread_mutex_unlock(&suppl_mutex);
                 return;
+	    }
         }
         usleep(100000);
     }
+    pthread_mutex_unlock(&suppl_mutex);
 }
 
 int wifi_command(const char *ifname, const char *command, char *reply, size_t *reply_len)
