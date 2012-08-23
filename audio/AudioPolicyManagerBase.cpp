@@ -386,6 +386,15 @@ void AudioPolicyManagerBase::setPhoneState(int state)
     }
 }
 
+
+void AudioPolicyManagerBase::setFmMode(uint32_t mode)
+{
+    LOGV("setFmMode() mode %x", mode);
+    mFmMode = mode;
+    setOutputDevice(mPrimaryOutput, getNewDevice(mPrimaryOutput, true /*fromCache*/), true);
+}
+
+
 void AudioPolicyManagerBase::setForceUse(AudioSystem::force_use usage, AudioSystem::forced_config config)
 {
     ALOGV("setForceUse() usage %d, config %d, mPhoneState %d", usage, config, mPhoneState);
@@ -406,7 +415,9 @@ void AudioPolicyManagerBase::setForceUse(AudioSystem::force_use usage, AudioSyst
             config != AudioSystem::FORCE_WIRED_ACCESSORY &&
             config != AudioSystem::FORCE_ANALOG_DOCK &&
             config != AudioSystem::FORCE_DIGITAL_DOCK && config != AudioSystem::FORCE_NONE &&
-            config != AudioSystem::FORCE_NO_BT_A2DP) {
+            config != AudioSystem::FORCE_NO_BT_A2DP &&
+            config != AudioSystem::FORCE_SPEAKER &&
+            config != AudioSystem::FORCE_WIDI) {
             ALOGW("setForceUse() invalid config %d for FOR_MEDIA", config);
             return;
         }
@@ -1293,7 +1304,7 @@ AudioPolicyManagerBase::AudioPolicyManagerBase(AudioPolicyClientInterface *clien
     mPhoneState(AudioSystem::MODE_NORMAL),
     mLimitRingtoneVolume(false), mLastVoiceVolume(-1.0f),
     mTotalEffectsCpuLoad(0), mTotalEffectsMemory(0),
-    mA2dpSuspended(false), mHasA2dp(false), mHasUsb(false), mHasRemoteSubmix(false)
+    mA2dpSuspended(false), mHasA2dp(false), mHasUsb(false), mHasRemoteSubmix(false), mFmMode(0)
 {
     mpClientInterface = clientInterface;
 
@@ -1989,7 +2000,7 @@ audio_devices_t AudioPolicyManagerBase::getNewDevice(audio_io_handle_t output, b
     // 4: the strategy "respectful" sonification is active on the output:
     //      use device for strategy "respectful" sonification
     // 5: the strategy media is active on the output:
-    //      use device for strategy media
+    //      use device for strategy media or fm radio is on
     // 6: the strategy DTMF is active on the output:
     //      use device for strategy DTMF
     if (outputDesc->isUsedByStrategy(STRATEGY_ENFORCED_AUDIBLE)) {
@@ -2001,7 +2012,7 @@ audio_devices_t AudioPolicyManagerBase::getNewDevice(audio_io_handle_t output, b
         device = getDeviceForStrategy(STRATEGY_SONIFICATION, fromCache);
     } else if (outputDesc->isUsedByStrategy(STRATEGY_SONIFICATION_RESPECTFUL)) {
         device = getDeviceForStrategy(STRATEGY_SONIFICATION_RESPECTFUL, fromCache);
-    } else if (outputDesc->isUsedByStrategy(STRATEGY_MEDIA)) {
+    } else if (outputDesc->isUsedByStrategy(STRATEGY_MEDIA) || (mFmMode == MODE_FM_ON)) {
         device = getDeviceForStrategy(STRATEGY_MEDIA, fromCache);
     } else if (outputDesc->isUsedByStrategy(STRATEGY_DTMF)) {
         device = getDeviceForStrategy(STRATEGY_DTMF, fromCache);
@@ -2210,13 +2221,19 @@ audio_devices_t AudioPolicyManagerBase::getDeviceForStrategy(routing_strategy st
         // FALL THROUGH
 
     case STRATEGY_MEDIA: {
-        uint32_t device2 = AUDIO_DEVICE_NONE;
-        if (strategy != STRATEGY_SONIFICATION) {
-            // no sonification on remote submix (e.g. WFD)
-            device2 = mAvailableOutputDevices & AUDIO_DEVICE_OUT_REMOTE_SUBMIX;
-        }
-        if ((device2 == AUDIO_DEVICE_NONE) &&
-                mHasA2dp && (mForceUse[AudioSystem::FOR_MEDIA] != AudioSystem::FORCE_NO_BT_A2DP) &&
+
+        uint32_t device2 = 0;
+
+	if(mForceUse[AudioSystem::FOR_MEDIA] == AudioSystem::FORCE_SPEAKER) {
+            LOGV("getDeviceForStrategy() Out. strategy: MEDIA, device: SPEAKER for forceuse.");
+            return AUDIO_DEVICE_OUT_SPEAKER;
+	}
+        // Widi device is to be selected before any other device as its
+        // connection is power-consuming
+        if (strategy != STRATEGY_SONIFICATION_LOCAL) {
+            device2 = mAvailableOutputDevices & AudioSystem::DEVICE_OUT_WIDI;
+		}
+	if (mHasA2dp && (mForceUse[AudioSystem::FOR_MEDIA] != AudioSystem::FORCE_NO_BT_A2DP) &&
                 (getA2dpOutput() != 0) && !mA2dpSuspended) {
             device2 = mAvailableOutputDevices & AUDIO_DEVICE_OUT_BLUETOOTH_A2DP;
             if (device2 == AUDIO_DEVICE_NONE) {
@@ -2379,6 +2396,9 @@ uint32_t AudioPolicyManagerBase::setOutputDevice(audio_io_handle_t output,
     }
     muteWaitMs = checkDeviceMuteStrategies(outputDesc, prevDevice, delayMs);
 
+
+    // force output device routing if fm radio is on and output device is changed.
+    if((mFmMode == MODE_FM_ON) && (device != prevDevice)) force = true;
     // Do not change the routing if:
     //  - the requested device is AUDIO_DEVICE_NONE
     //  - the requested device is the same as current device and force is not specified.

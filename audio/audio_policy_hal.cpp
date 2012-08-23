@@ -98,6 +98,13 @@ static void ap_set_ringer_mode(struct audio_policy *pol, uint32_t mode,
     // deprecated, never called
 }
 
+    /* indicate a change in fm radio mode */
+static void ap_set_fm_mode(struct audio_policy *pol, uint32_t mode)
+{
+    struct legacy_audio_policy *lap = to_lap(pol);
+    lap->apm->setFmMode(mode);
+}
+
     /* force using a specific device category for the specified usage */
 static void ap_set_force_use(struct audio_policy *pol,
                           audio_policy_force_use_t usage,
@@ -333,6 +340,7 @@ static int create_legacy_ap(const struct audio_policy_device *device,
     lap->policy.get_device_connection_state = ap_get_device_connection_state;
     lap->policy.set_phone_state = ap_set_phone_state;
     lap->policy.set_ringer_mode = ap_set_ringer_mode;
+    lap->policy.set_fm_mode = ap_set_fm_mode;
     lap->policy.set_force_use = ap_set_force_use;
     lap->policy.get_force_use = ap_get_force_use;
     lap->policy.set_can_mute_enforced_audible =

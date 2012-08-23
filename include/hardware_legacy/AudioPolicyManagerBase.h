@@ -78,6 +78,7 @@ public:
         virtual AudioSystem::device_connection_state getDeviceConnectionState(audio_devices_t device,
                                                                               const char *device_address);
         virtual void setPhoneState(int state);
+        virtual void setFmMode(uint32_t mode);
         virtual void setForceUse(AudioSystem::force_use usage, AudioSystem::forced_config config);
         virtual AudioSystem::forced_config getForceUse(AudioSystem::force_use usage);
         virtual void setSystemProperty(const char* property, const char* value);
@@ -147,6 +148,12 @@ protected:
             STRATEGY_DTMF,
             STRATEGY_ENFORCED_AUDIBLE,
             NUM_STRATEGIES
+        };
+
+        enum fm_mode {
+            MODE_FM_OFF,
+            MODE_FM_ON,
+            MODE_FM_NUM
         };
 
         // 4 points to define the volume attenuation curve, each characterized by the volume
@@ -516,6 +523,7 @@ protected:
                                                 // without AUDIO_DEVICE_BIT_IN to allow direct bit
                                                 // field comparisons
         int mPhoneState;                                                    // current phone state
+        uint32_t                 mFmMode;                                   // current fm radio mode
         AudioSystem::forced_config mForceUse[AudioSystem::NUM_FORCE_USE];   // current forced use configuration
 
         StreamDescriptor mStreams[AudioSystem::NUM_STREAM_TYPES];           // stream descriptors for volume control
