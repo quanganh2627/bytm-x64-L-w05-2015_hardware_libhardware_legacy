@@ -35,6 +35,7 @@
 #include <math.h>
 #include <hardware_legacy/audio_policy_conf.h>
 #include <cutils/properties.h>
+#define CODEC_OFFLOAD_MODULE "codec_offload"
 
 namespace android_audio_legacy {
 
@@ -50,6 +51,14 @@ status_t AudioPolicyManagerBase::setDeviceConnectionState(audio_devices_t device
     SortedVector <audio_io_handle_t> outputs;
 
     ALOGV("setDeviceConnectionState() device: %x, state %d, address %s", device, state, device_address);
+    if ((device & AUDIO_DEVICE_OUT_NON_OFFLOAD) && mMusicOffloadOutput) {
+        for (int i = 0; i < (int)AudioSystem::NUM_STREAM_TYPES; i++) {
+            if (getStrategy((AudioSystem::stream_type)i) == STRATEGY_MEDIA) {
+                ALOGV("call setstreamout  %d, AudioSystem::stream_type %d", i, (AudioSystem::stream_type)i);
+                mpClientInterface->setStreamOutput((AudioSystem::stream_type)i, mPrimaryOutput);
+            }
+        }
+    }
 
     // connect/disconnect only 1 device at a time
     if (!audio_is_output_device(device) && !audio_is_input_device(device)) return BAD_VALUE;
@@ -179,7 +188,8 @@ status_t AudioPolicyManagerBase::setDeviceConnectionState(audio_devices_t device
                 // close unused outputs after device disconnection or direct outputs that have been
                 // opened by checkOutputsForDevice() to query dynamic parameters
                 if ((state == AudioSystem::DEVICE_STATE_UNAVAILABLE) ||
-                        (mOutputs.valueFor(outputs[i])->mFlags & AUDIO_OUTPUT_FLAG_DIRECT)) {
+                        (!(mOutputs.valueFor(outputs[i])->mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) &&
+                                (mOutputs.valueFor(outputs[i])->mFlags & AUDIO_OUTPUT_FLAG_DIRECT))) {
                     closeOutput(outputs[i]);
                 }
             }
@@ -541,11 +551,20 @@ AudioPolicyManagerBase::IOProfile *AudioPolicyManagerBase::getProfileForDirectOu
         }
         for (size_t j = 0; j < mHwModules[i]->mOutputProfiles.size(); j++) {
            IOProfile *profile = mHwModules[i]->mOutputProfiles[j];
-           if (profile->isCompatibleProfile(device, samplingRate, format,
+
+           if ((flags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD)) {
+               ALOGI("flags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD");
+               if (strcmp(mHwModules[i]->mName, AUDIO_HARDWARE_MODULE_ID_CODEC_OFFLOAD) == 0) {
+                   ALOGI("AudioPolicyManagerBase: offload profile found %s",
+                         mHwModules[i]->mName);
+                   return mHwModules[i]->mOutputProfiles[j];
+               }
+           } else if (profile->isCompatibleProfile(device, samplingRate, format,
                                            channelMask,
                                            AUDIO_OUTPUT_FLAG_DIRECT)) {
-               if (mAvailableOutputDevices & profile->mSupportedDevices) {
-                   return mHwModules[i]->mOutputProfiles[j];
+                   if (mAvailableOutputDevices & profile->mSupportedDevices) {
+                       ALOGI("AudioPolicyManagerBase: mAvailableOutputDevices & profile->mSupportedDevices");
+                       return mHwModules[i]->mOutputProfiles[j];
                }
            }
         }
@@ -559,6 +578,7 @@ audio_io_handle_t AudioPolicyManagerBase::getOutput(AudioSystem::stream_type str
                                     uint32_t channelMask,
                                     AudioSystem::output_flags flags)
 {
+    ALOGI("APM: getOutput");
     audio_io_handle_t output = 0;
     uint32_t latency = 0;
     routing_strategy strategy = getStrategy((AudioSystem::stream_type)stream);
@@ -641,6 +661,9 @@ audio_io_handle_t AudioPolicyManagerBase::getOutput(AudioSystem::stream_type str
             return 0;
         }
         addOutput(output, outputDesc);
+        if (outputDesc->mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) {
+           mMusicOffloadOutput = true;
+        }
         ALOGV("getOutput() returns direct output %d", output);
         return output;
     }
@@ -807,7 +830,6 @@ status_t AudioPolicyManagerBase::stopOutput(audio_io_handle_t output,
             // and kernel buffers. Also the latency does not always include additional delay in the
             // audio path (audio DSP, CODEC ...)
             setOutputDevice(output, newDevice, false, outputDesc->mLatency*2);
-
             // force restoring the device selection on other active outputs if it differs from the
             // one being selected for this output
             for (size_t i = 0; i < mOutputs.size(); i++) {
@@ -815,7 +837,7 @@ status_t AudioPolicyManagerBase::stopOutput(audio_io_handle_t output,
                 AudioOutputDescriptor *desc = mOutputs.valueAt(i);
                 if (curOutput != output &&
                         desc->refCount() != 0 &&
-                        outputDesc->sharesHwModuleWith(desc) &&
+                        ((desc->mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) || outputDesc->sharesHwModuleWith(desc)) &&
                         newDevice != desc->device()) {
                     setOutputDevice(curOutput,
                                     getNewDevice(curOutput, false /*fromCache*/),
@@ -856,6 +878,11 @@ void AudioPolicyManagerBase::releaseOutput(audio_io_handle_t output)
     }
 #endif //AUDIO_POLICY_TEST
 
+    ALOGV("releaseOutput mOutputs.valueAt(index)->mFlags = 0x%x", mOutputs.valueAt(index)->mFlags);
+    if (mOutputs.valueAt(index)->mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) {
+        mMusicOffloadOutput = false;
+        ALOGV("ReleaseOutput mMusicOffloadOutput = %d", mMusicOffloadOutput);
+    }
     if (mOutputs.valueAt(index)->mFlags & AudioSystem::OUTPUT_FLAG_DIRECT) {
         mpClientInterface->closeOutput(output);
         delete mOutputs.valueAt(index);
@@ -1323,6 +1350,80 @@ status_t AudioPolicyManagerBase::dump(int fd)
     return NO_ERROR;
 }
 
+bool AudioPolicyManagerBase::isOffloadSupported(uint32_t format,
+                                    AudioSystem::stream_type stream,
+                                    uint32_t samplingRate,
+                                    uint32_t bitRate,
+                                    int64_t duration,
+                                    bool isVideo,
+                                    bool isStreaming)
+{
+    ALOGV("isOffloadSupported: format=%d,"
+         "stream=%x, sampRate %d, bitRate %d,"
+         "durt %lld, isVideo %d, isStreaming %d",
+         format, stream, samplingRate, bitRate, duration, (int)isVideo, (int)isStreaming);
+    // lpa.tunnelling.enable is used for testing. Should be 1 for normal operation
+    bool useLPA = false;
+    char value[PROPERTY_VALUE_MAX];
+    if (property_get("lpa.tunnelling.enable", value, "0")) {
+        useLPA = (bool)atoi(value);
+    }
+
+    ALOGV("useLPA %i", useLPA);
+    if (!useLPA) {
+        return false;
+    }
+
+    // If stream is not music or one of offload supported format, return false
+    if (stream != AUDIO_STREAM_MUSIC ) {
+        ALOGV("isOffloadSupported: return false as stream!=Music");
+        return false;
+    }
+    // The LPE Music offload output is not free, return PCM
+    if (mMusicOffloadOutput == true) {
+        ALOGV("isOffloadSupported: mMusicOffloadOutput = %d", mMusicOffloadOutput);
+        ALOGV("isOffloadSupported: Already offload in progress, use non offload decoding");
+        return false;
+    }
+
+    //If duration is less than minimum value defined in property, return false
+    char durValue[PROPERTY_VALUE_MAX];
+    if (property_get("offload.min.file.duration.secs", durValue, "0")) {
+        if (duration < (atoi(durValue) * 1000000 )) {
+            ALOGV("Property set to %s and it is too short for offload", durValue);
+            return false;
+        }
+    } else if (duration < (OFFLOAD_MIN_FILE_DURATION * 1000000 )) {
+        ALOGV("isOffloadSupported: File duration is too short for offload");
+        return false;
+    }
+
+    if ((isVideo) || (isStreaming)) {
+        ALOGV("isOffloadSupported: Video or stream is enabled, returning false");
+        return false;
+    }
+
+    // If format is not supported by LPE Music offload output, return PCM (IA-Decode)
+    switch (format){
+        case AUDIO_FORMAT_MP3:
+        case AUDIO_FORMAT_AAC:
+            break;
+        default:
+            ALOGV("isOffloadSupported: return false as unsupported format= %x", format);
+            return false;
+    }
+
+    // If output device != SPEAKER or HEADSET/HEADPHONE, make it as IA-decoding option
+    routing_strategy strategy = getStrategy((AudioSystem::stream_type)stream);
+    uint32_t device = getDeviceForStrategy(strategy, true /* from cache */);
+    if ((device & AUDIO_DEVICE_OUT_NON_OFFLOAD) ||
+        (getDeviceConnectionState(AudioSystem::DEVICE_OUT_NON_OFFLOAD, "") == AudioSystem::DEVICE_STATE_AVAILABLE)) {
+        ALOGV("isOffloadSupported: Output not compatible for offload - use IA decode");
+        return false;
+    }
+    ALOGD("isOffloadSupported: Return true with supported format=%x", format);
+    return true;
+}
 // ----------------------------------------------------------------------------
 // AudioPolicyManagerBase
 // ----------------------------------------------------------------------------
@@ -1342,7 +1443,8 @@ AudioPolicyManagerBase::AudioPolicyManagerBase(AudioPolicyClientInterface *clien
       mTotalEffectsMemory(0),
       mA2dpSuspended(false),
       mHasA2dp(false),
-      mHasUsb(false)
+      mHasUsb(false),
+      mMusicOffloadOutput(false)
 {
     mpClientInterface = clientInterface;
 
@@ -1365,7 +1467,10 @@ AudioPolicyManagerBase::AudioPolicyManagerBase(AudioPolicyClientInterface *clien
 
     // open all output streams needed to access attached devices
     for (size_t i = 0; i < mHwModules.size(); i++) {
+        ALOGI("AudioPolicyManagerBase: i = %d mHwModules.size() %d, mHwModules[i]->mName %s",
+            i ,mHwModules.size(), mHwModules[i]->mName);
         mHwModules[i]->mHandle = mpClientInterface->loadHwModule(mHwModules[i]->mName);
+        ALOGI("The mHwModules[%d]->mHandle = %x", i, mHwModules[i]->mHandle);
         if (mHwModules[i]->mHandle == 0) {
             ALOGW("could not open HW module %s", mHwModules[i]->mName);
             continue;
@@ -1857,6 +1962,10 @@ void AudioPolicyManagerBase::closeOutput(audio_io_handle_t output)
         }
     }
 
+    if (mMusicOffloadOutput) {
+        mMusicOffloadOutput = false;
+        ALOGV("closeOutput: mMusicOffloadOutput = %d", mMusicOffloadOutput);
+    }
     AudioParameter param;
     param.add(String8("closing"), String8("true"));
     mpClientInterface->setParameters(output, param.toString());
@@ -2387,11 +2496,11 @@ uint32_t AudioPolicyManagerBase::checkDeviceMuteStrategies(AudioOutputDescriptor
 
     uint32_t muteWaitMs = 0;
     audio_devices_t device = outputDesc->device();
-    bool shouldMute = (outputDesc->refCount() != 0) &&
+    bool shouldMute = (outputDesc->mId == mPrimaryOutput) && (outputDesc->refCount() != 0) &&
                     (AudioSystem::popCount(device) >= 2);
     // temporary mute output if device selection changes to avoid volume bursts due to
     // different per device volumes
-    bool tempMute = (outputDesc->refCount() != 0) && (device != prevDevice);
+    bool tempMute = (outputDesc->mId == mPrimaryOutput) && (outputDesc->refCount() != 0) && (device != prevDevice);
 
     for (size_t i = 0; i < NUM_STRATEGIES; i++) {
         audio_devices_t curDevice = getDeviceForStrategy((routing_strategy)i, false /*fromCache*/);
@@ -2421,8 +2530,9 @@ uint32_t AudioPolicyManagerBase::checkDeviceMuteStrategies(AudioOutputDescriptor
                         setStrategyMute((routing_strategy)i, true, curOutput);
                         setStrategyMute((routing_strategy)i, false, curOutput,
                                             desc->latency() * 2, device);
+
                     }
-                    if (tempMute || mute) {
+                    if ((tempMute || mute)) {
                         if (muteWaitMs < desc->latency()) {
                             muteWaitMs = desc->latency();
                         }
@@ -2493,14 +2603,20 @@ uint32_t AudioPolicyManagerBase::setOutputDevice(audio_io_handle_t output,
     //  - the requested device is the same as current device and force is not specified.
     // Doing this check here allows the caller to call setOutputDevice() without conditions
     if ((device == AUDIO_DEVICE_NONE || device == prevDevice) && !force) {
-        ALOGV("setOutputDevice() setting same device %04x or null device for output %d", device, output);
-        return muteWaitMs;
+        if (!(device != 0 && (outputDesc->mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD))) {
+            ALOGV("setOutputDevice() setting same device %04x or null device for output %d", device, output);
+            return muteWaitMs;
+       }  
     }
 
     ALOGV("setOutputDevice() changing device");
     // do the routing
     param.addInt(String8(AudioParameter::keyRouting), (int)device);
-    mpClientInterface->setParameters(output, param.toString(), delayMs);
+    if (outputDesc->mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) {
+        mpClientInterface->setParameters(mPrimaryOutput, param.toString(), delayMs);
+    } else {
+        mpClientInterface->setParameters(output, param.toString(), delayMs);
+    }
 
     // update stream volumes according to new device, force the reevaluation in case of FM
     applyStreamVolumes(output, device, delayMs, mFmMode == MODE_FM_ON);
