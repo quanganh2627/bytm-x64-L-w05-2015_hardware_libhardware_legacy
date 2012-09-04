@@ -165,6 +165,16 @@ public:
 
     //dump state
     virtual status_t    dump(int fd) = 0;
+
+    //Check if offload is possible for given sample rate, bitrate, duration, video file
+    //streaming and audio policy.
+    virtual bool isOffloadSupported(uint32_t format,
+                                    AudioSystem::stream_type stream,
+                                    uint32_t samplingRate,
+                                    uint32_t bitRate,
+                                    int64_t duration,
+                                    bool isVideo = false,
+                                    bool isStreaming = false) = 0;
 };
 
 
