@@ -2778,8 +2778,12 @@ audio_devices_t AudioPolicyManagerBase::getDeviceForInputSource(int inputSource)
         }
         break;
     case AUDIO_SOURCE_CAMCORDER:
+        // Use wiredHeadset's MIC when Headset with mic is connected
+        if (mAvailableInputDevices & AudioSystem::DEVICE_IN_WIRED_HEADSET) {
+            device = AudioSystem::DEVICE_IN_WIRED_HEADSET;
+        }
         // Use the Mic which is in same direction as the orientation of camera
-        if ((mAvailableInputDevices & AudioSystem::DEVICE_IN_BACK_MIC) && cameraFacingBack) {
+        else if ((mAvailableInputDevices & AudioSystem::DEVICE_IN_BACK_MIC) && cameraFacingBack) {
             device = AudioSystem::DEVICE_IN_BACK_MIC;
         } else {
             device = AudioSystem::DEVICE_IN_BUILTIN_MIC;
