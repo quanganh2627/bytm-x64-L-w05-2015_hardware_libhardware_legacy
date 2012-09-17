@@ -280,7 +280,8 @@ public:
         //devices not supported for codec offload
         DEVICE_OUT_NON_OFFLOAD = (DEVICE_OUT_ALL & ~(DEVICE_OUT_SPEAKER |
                                   DEVICE_OUT_WIRED_HEADSET |
-                                  DEVICE_OUT_WIRED_HEADPHONE))
+                                  DEVICE_OUT_WIRED_HEADPHONE |
+                                  DEVICE_OUT_EARPIECE))
 
     };
 
