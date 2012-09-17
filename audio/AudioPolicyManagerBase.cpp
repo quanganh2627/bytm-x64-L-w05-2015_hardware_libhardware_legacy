@@ -300,7 +300,17 @@ AudioSystem::device_connection_state AudioPolicyManagerBase::getDeviceConnection
 void AudioPolicyManagerBase::setPhoneState(int state)
 {
     ALOGV("setPhoneState() state %d", state);
-    audio_devices_t newDevice = AUDIO_DEVICE_NONE;
+    audio_devices_t newDevice = (audio_devices_t)AUDIO_DEVICE_NONE;
+    audio_devices_t offloadDevice = (audio_devices_t)0;
+    audio_io_handle_t offloadOutput = (audio_io_handle_t)0;
+    for (size_t i = 0; i < mOutputs.size(); i++) {
+        AudioOutputDescriptor *desc = mOutputs.valueAt(i);
+        if (desc->mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) {
+             offloadDevice = desc->device();
+             offloadOutput = mOutputs.keyAt(i);
+             break;
+        }
+    }
     if (state < 0 || state >= AudioSystem::NUM_MODES) {
         ALOGW("setPhoneState() invalid state %d", state);
         return;
@@ -344,6 +354,7 @@ void AudioPolicyManagerBase::setPhoneState(int state)
     }
 
     // check for device and output changes triggered by new phone state
+
     newDevice = getNewDevice(mPrimaryOutput, false /*fromCache*/);
     checkA2dpSuspend();
     checkOutputForAllStrategies();
@@ -354,7 +365,13 @@ void AudioPolicyManagerBase::setPhoneState(int state)
     // force routing command to audio hardware when ending call
     // even if no device change is needed
     if (isStateInCall(oldState) && newDevice == AUDIO_DEVICE_NONE) {
-        newDevice = hwOutputDesc->device();
+        if (mMusicOffloadOutput) {
+            newDevice = getNewDevice(offloadOutput, false /*fromCache*/);
+        }
+        else {
+            newDevice = hwOutputDesc->device();
+        }
+        ALOGV("setPhoneState() newDevice : %d", newDevice);
     }
 
     // when changing from ring tone to in call mode, mute the ringing tone
@@ -385,9 +402,13 @@ void AudioPolicyManagerBase::setPhoneState(int state)
         }
     }
 
-    // change routing is necessary
-    setOutputDevice(mPrimaryOutput, newDevice, force, delayMs);
+    // **FIX ME ** Changed during MR1 rebase as force instread of true
+    //change routing is necessary
 
+    setOutputDevice(mPrimaryOutput, newDevice, force, delayMs);
+    if (offloadOutput && mMusicOffloadOutput) {
+        setOutputDevice(offloadOutput, newDevice, force, delayMs);
+    }
     // if entering in call state, handle special case of active streams
     // pertaining to sonification strategy see handleIncallSonification()
     if (isStateInCall(state)) {
@@ -1412,8 +1433,9 @@ bool AudioPolicyManagerBase::isOffloadSupported(uint32_t format,
     // If output device != SPEAKER or HEADSET/HEADPHONE, make it as IA-decoding option
     routing_strategy strategy = getStrategy((AudioSystem::stream_type)stream);
     uint32_t device = getDeviceForStrategy(strategy, true /* from cache */);
+
     if ((device & AUDIO_DEVICE_OUT_NON_OFFLOAD) ||
-        (getDeviceConnectionState(AudioSystem::DEVICE_OUT_NON_OFFLOAD, "") == AudioSystem::DEVICE_STATE_AVAILABLE)) {
+        (AudioSystem::DEVICE_OUT_NON_OFFLOAD & mAvailableOutputDevices)) {
         ALOGV("isOffloadSupported: Output not compatible for offload - use IA decode");
         return false;
     }
