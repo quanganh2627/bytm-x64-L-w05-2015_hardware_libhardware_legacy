@@ -2246,13 +2246,8 @@ audio_devices_t AudioPolicyManagerBase::getDeviceForStrategy(routing_strategy st
     case STRATEGY_MEDIA: {
 
         uint32_t device2 = 0;
-
-	if(mForceUse[AudioSystem::FOR_MEDIA] == AudioSystem::FORCE_SPEAKER) {
-            LOGV("getDeviceForStrategy() Out. strategy: MEDIA, device: SPEAKER for forceuse.");
-            return AUDIO_DEVICE_OUT_SPEAKER;
-        }
         if (mHasA2dp && (mForceUse[AudioSystem::FOR_MEDIA] != AudioSystem::FORCE_NO_BT_A2DP) &&
-            (getA2dpOutput() != 0) && !mA2dpSuspended) {
+                (getA2dpOutput() != 0) && !mA2dpSuspended) {
             device2 = mAvailableOutputDevices & AudioSystem::DEVICE_OUT_BLUETOOTH_A2DP;
             if (device2 == 0) {
                 device2 = mAvailableOutputDevices & AudioSystem::DEVICE_OUT_BLUETOOTH_A2DP_HEADPHONES;
