@@ -244,6 +244,9 @@ public:
     // set down link audio volume.
     virtual status_t setVoiceVolume(float volume, int delayMs = 0) = 0;
 
+    // set fm rx playback audio volume.
+    virtual status_t setFmRxVolume(float volume, int delayMs = 0) = 0;
+
     // move effect to the specified output
     virtual status_t moveEffects(int session,
                                      audio_io_handle_t srcOutput,
