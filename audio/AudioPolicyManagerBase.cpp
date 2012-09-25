@@ -2061,6 +2061,7 @@ AudioPolicyManagerBase::routing_strategy AudioPolicyManagerBase::getStrategy(
         // while key clicks are played produces a poor result
     case AudioSystem::TTS:
     case AudioSystem::MUSIC:
+    case AudioSystem::FM_RX:
         return STRATEGY_MEDIA;
     case AudioSystem::ENFORCED_AUDIBLE:
         return STRATEGY_ENFORCED_AUDIBLE;
@@ -2413,8 +2414,8 @@ uint32_t AudioPolicyManagerBase::setOutputDevice(audio_io_handle_t output,
     param.addInt(String8(AudioParameter::keyRouting), (int)device);
     mpClientInterface->setParameters(output, param.toString(), delayMs);
 
-    // update stream volumes according to new device
-    applyStreamVolumes(output, device, delayMs);
+    // update stream volumes according to new device, force the reevaluation in case of FM
+    applyStreamVolumes(output, device, delayMs, mFmMode == MODE_FM_ON);
 
     return muteWaitMs;
 }
@@ -2701,6 +2702,11 @@ const AudioPolicyManagerBase::VolumeCurvePoint
         sDefaultSystemVolumeCurve  // DEVICE_CATEGORY_EARPIECE
     },
     { // AUDIO_STREAM_TTS
+        sDefaultMediaVolumeCurve, // DEVICE_CATEGORY_HEADSET
+        sSpeakerMediaVolumeCurve, // DEVICE_CATEGORY_SPEAKER
+        sDefaultMediaVolumeCurve  // DEVICE_CATEGORY_EARPIECE
+    },
+    { // AUDIO_STREAM_FM_RX
         sDefaultMediaVolumeCurve, // DEVICE_CATEGORY_HEADSET
         sSpeakerMediaVolumeCurve, // DEVICE_CATEGORY_SPEAKER
         sDefaultMediaVolumeCurve  // DEVICE_CATEGORY_EARPIECE
