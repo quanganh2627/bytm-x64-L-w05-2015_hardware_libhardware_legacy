@@ -136,6 +136,22 @@ status_t AudioPolicyManagerBase::setDeviceConnectionState(audio_devices_t device
             // remove device from available output devices
             mAvailableOutputDevices = (audio_devices_t)(mAvailableOutputDevices & ~device);
 
+            // Change policy in the case of wsHS unplugging with BT A2DP connected:
+            // at that moment, the FORCE_NO_BT_A2DP flag is set; that unfortunately leads to select
+            // temporarily the speaker as output until setForceUse(FORCE_NONE) is called
+            // by AudioService.
+            // Check that BT A2DP connection is available, and that there is no WIDI
+            // device, otherwise keep the flag to prioritize WIDI over BT A2DP
+            if ((device == AudioSystem::DEVICE_OUT_WIRED_HEADSET) ||
+                (device == AudioSystem::DEVICE_OUT_WIRED_HEADPHONE)){
+                if ((mForceUse[AudioSystem::FOR_MEDIA] == AudioSystem::FORCE_NO_BT_A2DP) &&
+                    (getA2dpOutput() != 0) &&
+                    !(mAvailableOutputDevices & AudioSystem::DEVICE_OUT_WIDI)) {
+                    ALOGD("Disabling priority over BT A2DP for MEDIA streams");
+                    mForceUse[AudioSystem::FOR_MEDIA] = AudioSystem::FORCE_NONE;
+                }
+            }
+
             checkOutputsForDevice(device, state, outputs);
             if (mHasA2dp && audio_is_a2dp_device(device)) {
                 // handle A2DP device disconnection
