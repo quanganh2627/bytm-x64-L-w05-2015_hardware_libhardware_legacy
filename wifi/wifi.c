@@ -707,6 +707,31 @@ int wifi_connect_to_supplicant(const char *ifname)
     }
 }
 
+void log_cmd(const char *cmd)
+{
+    LOGI("CMD: %s\n", cmd);
+}
+
+void log_reply(char *reply, size_t *reply_len)
+{
+    char replyLocal[*reply_len];
+    char delims[] = "\n";
+    char *result = NULL;
+
+    strncpy(replyLocal, reply, *reply_len);
+
+    if (*reply_len > 0 && replyLocal[*reply_len-1] == '\n')
+        replyLocal[*reply_len-1] = '\0';
+    else
+        replyLocal[*reply_len] = '\0';
+
+    result = strtok(replyLocal , delims );
+    while( result != NULL ) {
+        LOGI("REPLY: %s\n", result);
+        result = strtok( NULL, delims );
+    }
+}
+
 int wifi_send_command(int index, const char *cmd, char *reply, size_t *reply_len)
 {
     int ret;
@@ -715,6 +740,7 @@ int wifi_send_command(int index, const char *cmd, char *reply, size_t *reply_len
         ALOGV("Not connected to wpa_supplicant - \"%s\" command dropped.\n", cmd);
         return -1;
     }
+    log_cmd(cmd);
     ret = wpa_ctrl_request(ctrl_conn[index], cmd, strlen(cmd), reply, reply_len, NULL);
     if (ret == -2) {
         ALOGD("'%s' command timed out.\n", cmd);
@@ -722,11 +748,13 @@ int wifi_send_command(int index, const char *cmd, char *reply, size_t *reply_len
         TEMP_FAILURE_RETRY(write(exit_sockets[index][0], "T", 1));
         return -2;
     } else if (ret < 0 || strncmp(reply, "FAIL", 4) == 0) {
+        LOGI("REPLY: FAIL\n");
         return -1;
     }
     if (strncmp(cmd, "PING", 4) == 0) {
         reply[*reply_len] = '\0';
     }
+    log_reply(reply, reply_len);
     return 0;
 }
 
@@ -812,7 +840,7 @@ int wifi_wait_on_socket(int index, char *buf, size_t buflen)
             memmove(buf, match+1, nread+1);
         }
     }
-
+    LOGI("EVENT: %s\n", buf);
     return nread;
 }
 
