@@ -61,8 +61,8 @@ enum audio_source {
     AUDIO_SOURCE_CAMCORDER = 5,
     AUDIO_SOURCE_VOICE_RECOGNITION = 6,
     AUDIO_SOURCE_VOICE_COMMUNICATION = 7,
-    AUDIO_SOURCE_MAX = AUDIO_SOURCE_VOICE_COMMUNICATION,
-
+    AUDIO_SOURCE_FM = 8,
+    AUDIO_SOURCE_MAX = AUDIO_SOURCE_FM,
     AUDIO_SOURCE_LIST_END  // must be last - used to validate audio source type
 };
 
@@ -270,11 +270,19 @@ public:
         DEVICE_IN_AUX_DIGITAL = AUDIO_DEVICE_IN_AUX_DIGITAL,
         DEVICE_IN_VOICE_CALL = AUDIO_DEVICE_IN_VOICE_CALL,
         DEVICE_IN_BACK_MIC = AUDIO_DEVICE_IN_BACK_MIC,
+        DEVICE_IN_FM_RECORD = AUDIO_DEVICE_IN_FM_RECORD,
         DEVICE_IN_DEFAULT = AUDIO_DEVICE_IN_DEFAULT,
 
         DEVICE_IN_ALL = (DEVICE_IN_COMMUNICATION | DEVICE_IN_AMBIENT | DEVICE_IN_BUILTIN_MIC |
                 DEVICE_IN_BLUETOOTH_SCO_HEADSET | DEVICE_IN_WIRED_HEADSET | DEVICE_IN_AUX_DIGITAL |
-                DEVICE_IN_VOICE_CALL | DEVICE_IN_BACK_MIC | DEVICE_IN_DEFAULT)
+                DEVICE_IN_VOICE_CALL | DEVICE_IN_BACK_MIC | DEVICE_IN_FM_RECORD | DEVICE_IN_DEFAULT)
+
+        //devices not supported for codec offload
+        DEVICE_OUT_NON_OFFLOAD = (DEVICE_OUT_ALL & ~(DEVICE_OUT_SPEAKER |
+                                  DEVICE_OUT_WIRED_HEADSET |
+                                  DEVICE_OUT_WIRED_HEADPHONE |
+                                  DEVICE_OUT_EARPIECE))
+
     };
 
     // request to open a direct output with getOutput() (by opposition to sharing an output with other AudioTracks)
