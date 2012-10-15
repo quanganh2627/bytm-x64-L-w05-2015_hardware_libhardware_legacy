@@ -2252,6 +2252,11 @@ audio_devices_t AudioPolicyManagerBase::getDeviceForStrategy(routing_strategy st
     case STRATEGY_MEDIA: {
 
         uint32_t device2 = 0;
+
+                if(mForceUse[AudioSystem::FOR_MEDIA] == AudioSystem::FORCE_SPEAKER) {
+            LOGV("getDeviceForStrategy() Out. strategy: MEDIA, device: SPEAKER for forceuse.");
+            return AUDIO_DEVICE_OUT_SPEAKER;
+        }
         if (mHasA2dp && (mForceUse[AudioSystem::FOR_MEDIA] != AudioSystem::FORCE_NO_BT_A2DP) &&
                 (getA2dpOutput() != 0) && !mA2dpSuspended) {
             device2 = mAvailableOutputDevices & AudioSystem::DEVICE_OUT_BLUETOOTH_A2DP;
@@ -2524,6 +2529,11 @@ audio_devices_t AudioPolicyManagerBase::getDeviceForInputSource(int inputSource)
     case AUDIO_SOURCE_REMOTE_SUBMIX:
         if (mAvailableInputDevices & AUDIO_DEVICE_IN_REMOTE_SUBMIX) {
             device = AUDIO_DEVICE_IN_REMOTE_SUBMIX;
+        }
+        break;
+    case AUDIO_SOURCE_FM:
+        if (mAvailableInputDevices & AudioSystem::DEVICE_IN_FM_RECORD) {
+            device = AudioSystem::DEVICE_IN_FM_RECORD;
         }
         break;
     default:
@@ -3471,6 +3481,7 @@ const struct StringToEnum sDeviceNameToEnumTable[] = {
     STRING_TO_ENUM(AUDIO_DEVICE_IN_ANLG_DOCK_HEADSET),
     STRING_TO_ENUM(AUDIO_DEVICE_IN_DGTL_DOCK_HEADSET),
     STRING_TO_ENUM(AUDIO_DEVICE_IN_USB_ACCESSORY),
+    STRING_TO_ENUM(AUDIO_DEVICE_IN_FM_RECORD),
 };
 
 const struct StringToEnum sFlagNameToEnumTable[] = {
