@@ -709,7 +709,20 @@ int wifi_connect_to_supplicant(const char *ifname)
 
 void log_cmd(const char *cmd)
 {
-    LOGI("CMD: %s\n", cmd);
+    if (strstr (cmd, "SET_NETWORK") && strstr(cmd, "password")) {
+        char *pbuf = malloc(strlen(cmd) + 1);
+        if (pbuf) {
+            strncpy(pbuf, cmd, strlen(cmd) + 1);
+            pbuf[strlen(cmd)]='\0';
+            char *p = strchr(pbuf, '\"');
+            if (p)
+                *p = '\0';
+            LOGI("CMD: %s\n", pbuf);
+        }
+        free(pbuf);
+    }
+    else
+        LOGI("CMD: %s\n", cmd);
 }
 
 void log_reply(char *reply, size_t *reply_len)
