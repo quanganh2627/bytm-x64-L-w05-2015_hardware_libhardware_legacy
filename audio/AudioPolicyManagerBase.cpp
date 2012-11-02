@@ -409,6 +409,16 @@ void AudioPolicyManagerBase::setFmMode(uint32_t mode)
 {
     LOGV("setFmMode() mode %x", mode);
     mFmMode = mode;
+    AudioOutputDescriptor *outputDesc = mOutputs.valueFor(mPrimaryOutput);
+    if (mFmMode == MODE_FM_ON) {
+        LOGV("FM mode is on, increment FM_RX stream count");
+        outputDesc->changeRefCount(AudioSystem::FM_RX, 1);
+    }
+    else {
+        LOGV("FM mode is off, decrement FM_RX stream count");
+        outputDesc->changeRefCount(AudioSystem::FM_RX, -1);
+    }
+
     setOutputDevice(mPrimaryOutput, getNewDevice(mPrimaryOutput, true /*fromCache*/), true);
 }
 
@@ -1901,7 +1911,7 @@ void AudioPolicyManagerBase::checkOutputForStrategy(routing_strategy strategy)
         }
 
         // Move effects associated to this strategy from previous output to new output
-        if (strategy == STRATEGY_MEDIA) {
+        if ((strategy == STRATEGY_MEDIA) || (strategy == STRATEGY_FM_RADIO)) {
             int outIdx = 0;
             for (size_t i = 0; i < dstOutputs.size(); i++) {
                 AudioOutputDescriptor *desc = mOutputs.valueFor(dstOutputs[i]);
@@ -1944,6 +1954,7 @@ void AudioPolicyManagerBase::checkOutputForAllStrategies()
     checkOutputForStrategy(STRATEGY_SONIFICATION_RESPECTFUL);
     checkOutputForStrategy(STRATEGY_SONIFICATION_LOCAL);
     checkOutputForStrategy(STRATEGY_MEDIA);
+    checkOutputForStrategy(STRATEGY_FM_RADIO);
     checkOutputForStrategy(STRATEGY_DTMF);
 }
 
@@ -2039,10 +2050,12 @@ audio_devices_t AudioPolicyManagerBase::getNewDevice(audio_io_handle_t output, b
         device = getDeviceForStrategy(STRATEGY_SONIFICATION, fromCache);
     } else if (outputDesc->isUsedByStrategy(STRATEGY_SONIFICATION_RESPECTFUL)) {
         device = getDeviceForStrategy(STRATEGY_SONIFICATION_RESPECTFUL, fromCache);
-    } else if (outputDesc->isUsedByStrategy(STRATEGY_MEDIA) || (mFmMode == MODE_FM_ON)) {
+    } else if (outputDesc->isUsedByStrategy(STRATEGY_MEDIA)) {
         device = getDeviceForStrategy(STRATEGY_MEDIA, fromCache);
     } else if (outputDesc->isUsedByStrategy(STRATEGY_DTMF)) {
         device = getDeviceForStrategy(STRATEGY_DTMF, fromCache);
+    } else if (outputDesc->isUsedByStrategy(STRATEGY_FM_RADIO)) {
+        device = getDeviceForStrategy(STRATEGY_FM_RADIO, fromCache);
     }
 
     ALOGV("getNewDevice() selected device %x", device);
@@ -2089,10 +2102,11 @@ AudioPolicyManagerBase::routing_strategy AudioPolicyManagerBase::getStrategy(
         // while key clicks are played produces a poor result
     case AudioSystem::TTS:
     case AudioSystem::MUSIC:
-    case AudioSystem::FM_RX:
         return STRATEGY_MEDIA;
     case AudioSystem::ENFORCED_AUDIBLE:
         return STRATEGY_ENFORCED_AUDIBLE;
+    case AudioSystem::FM_RX:
+        return STRATEGY_FM_RADIO;
     }
 }
 
@@ -2135,6 +2149,12 @@ audio_devices_t AudioPolicyManagerBase::getDeviceForStrategy(routing_strategy st
 
     case STRATEGY_DTMF:
         if (!isInCall()) {
+            // If FM is on, follow the FM_RADIO strategy policy
+            if (mFmMode == MODE_FM_ON) {
+                device = getDeviceForStrategy(STRATEGY_FM_RADIO, false /*fromCache*/);
+                break;
+            }
+
             // when off call, DTMF strategy follows the same rules as MEDIA strategy
             device = getDeviceForStrategy(STRATEGY_MEDIA, false /*fromCache*/);
             break;
@@ -2253,10 +2273,10 @@ audio_devices_t AudioPolicyManagerBase::getDeviceForStrategy(routing_strategy st
 
         uint32_t device2 = 0;
 
-                if(mForceUse[AudioSystem::FOR_MEDIA] == AudioSystem::FORCE_SPEAKER) {
-            LOGV("getDeviceForStrategy() Out. strategy: MEDIA, device: SPEAKER for forceuse.");
-            return AUDIO_DEVICE_OUT_SPEAKER;
+        if (mFmMode == MODE_FM_ON) {
+            device2 = getDeviceForStrategy(STRATEGY_FM_RADIO, false /*fromCache*/);
         }
+
         if (mHasA2dp && (mForceUse[AudioSystem::FOR_MEDIA] != AudioSystem::FORCE_NO_BT_A2DP) &&
                 (getA2dpOutput() != 0) && !mA2dpSuspended) {
             device2 = mAvailableOutputDevices & AudioSystem::DEVICE_OUT_BLUETOOTH_A2DP;
@@ -2305,6 +2325,31 @@ audio_devices_t AudioPolicyManagerBase::getDeviceForStrategy(routing_strategy st
             ALOGE("getDeviceForStrategy() no device found for STRATEGY_MEDIA");
         }
         } break;
+
+
+    case STRATEGY_FM_RADIO: {
+
+        uint32_t device2 = 0;
+
+        if(mForceUse[AudioSystem::FOR_MEDIA] == AudioSystem::FORCE_SPEAKER) {
+            LOGV("getDeviceForStrategy():Force use of SPEAKER for STRATEGY_FM_RADIO.");
+            device2 = mAvailableOutputDevices & AudioSystem::DEVICE_OUT_SPEAKER;
+        }
+        if (device2 == 0) {
+            device2 = mAvailableOutputDevices & AudioSystem::DEVICE_OUT_WIRED_HEADPHONE;
+        }
+        if (device2 == 0) {
+            device2 = mAvailableOutputDevices & AudioSystem::DEVICE_OUT_WIRED_HEADSET;
+        }
+
+        device |= device2;
+        if (device) break;
+        device = mDefaultOutputDevice;
+        if (device == 0) {
+            ALOGE("getDeviceForStrategy() no device found for STRATEGY_FM_RADIO");
+        }
+        }
+        break;
 
     default:
         ALOGW("getDeviceForStrategy() unknown strategy: %d", strategy);
@@ -2437,9 +2482,6 @@ uint32_t AudioPolicyManagerBase::setOutputDevice(audio_io_handle_t output,
 
     muteWaitMs = checkDeviceMuteStrategies(outputDesc, prevDevice, delayMs);
 
-
-    // force output device routing if fm radio is on and output device is changed.
-    if((mFmMode == MODE_FM_ON) && (device != prevDevice)) force = true;
     // Do not change the routing if:
     //  - the requested device is AUDIO_DEVICE_NONE
     //  - the requested device is the same as current device and force is not specified.
