@@ -472,9 +472,15 @@ void AudioPolicyManagerBase::setForceUse(AudioSystem::force_use usage, AudioSyst
             config != AudioSystem::FORCE_SYSTEM_ENFORCED) {
             ALOGW("setForceUse() invalid config %d for FOR_SYSTEM", config);
         }
+    case AudioSystem::FOR_FM_RADIO:
+        if (config != AudioSystem::FORCE_NONE && config != AudioSystem::FORCE_SPEAKER &&
+            config != AudioSystem::FORCE_HEADPHONES && config != AudioSystem::FORCE_WIRED_ACCESSORY) {
+            ALOGW("setForceUse() invalid config %d for FOR_FM_RADIO", config);
+        }
         forceVolumeReeval = true;
         mForceUse[usage] = config;
         break;
+
     default:
         ALOGW("setForceUse() invalid usage %d", usage);
         break;
@@ -2326,7 +2332,7 @@ audio_devices_t AudioPolicyManagerBase::getDeviceForStrategy(routing_strategy st
 
         uint32_t device2 = 0;
 
-        if(mForceUse[AudioSystem::FOR_MEDIA] == AudioSystem::FORCE_SPEAKER) {
+        if(mForceUse[AudioSystem::FOR_FM_RADIO] == AudioSystem::FORCE_SPEAKER) {
             LOGV("getDeviceForStrategy():Force use of SPEAKER for STRATEGY_FM_RADIO.");
             device2 = mAvailableOutputDevices & AudioSystem::DEVICE_OUT_SPEAKER;
         }
@@ -2563,11 +2569,11 @@ audio_devices_t AudioPolicyManagerBase::getDeviceForInputSource(int inputSource)
             device = AUDIO_DEVICE_IN_VOICE_CALL;
         }
         break;
-    case AUDIO_SOURCE_REMOTE_SUBMIX:
+   case AUDIO_SOURCE_REMOTE_SUBMIX:
         if (mAvailableInputDevices & AUDIO_DEVICE_IN_REMOTE_SUBMIX) {
             device = AUDIO_DEVICE_IN_REMOTE_SUBMIX;
         }
-        break;
+        break; 
     case AUDIO_SOURCE_FM:
         if (mAvailableInputDevices & AudioSystem::DEVICE_IN_FM_RECORD) {
             device = AudioSystem::DEVICE_IN_FM_RECORD;
