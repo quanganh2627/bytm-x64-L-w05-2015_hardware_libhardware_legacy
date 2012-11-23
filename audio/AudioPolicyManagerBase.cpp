@@ -903,6 +903,12 @@ void AudioPolicyManagerBase::releaseOutput(audio_io_handle_t output)
     if (mOutputs.valueAt(index)->mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) {
         mMusicOffloadOutput = false;
         ALOGV("ReleaseOutput mMusicOffloadOutput = %d", mMusicOffloadOutput);
+
+        AudioParameter param;
+        int flags =  (int)mOutputs.valueFor(mPrimaryOutput)->mFlags;
+        flags &= ~AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD;
+        param.addInt(String8(AudioParameter::keyStreamFlags), flags);
+        mpClientInterface->setParameters(mPrimaryOutput, param.toString(), 0);
     }
     if (mOutputs.valueAt(index)->mFlags & AudioSystem::OUTPUT_FLAG_DIRECT) {
         mpClientInterface->closeOutput(output);
@@ -1987,6 +1993,12 @@ void AudioPolicyManagerBase::closeOutput(audio_io_handle_t output)
     if (mMusicOffloadOutput) {
         mMusicOffloadOutput = false;
         ALOGV("closeOutput: mMusicOffloadOutput = %d", mMusicOffloadOutput);
+
+        AudioParameter param;
+        int flags =  (int)mOutputs.valueFor(mPrimaryOutput)->mFlags;
+        flags &= ~AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD;
+        param.addInt(String8(AudioParameter::keyStreamFlags), flags);
+        mpClientInterface->setParameters(mPrimaryOutput, param.toString(), 0);
     }
     AudioParameter param;
     param.add(String8("closing"), String8("true"));
@@ -2634,6 +2646,7 @@ uint32_t AudioPolicyManagerBase::setOutputDevice(audio_io_handle_t output,
     ALOGV("setOutputDevice() changing device");
     // do the routing
     param.addInt(String8(AudioParameter::keyRouting), (int)device);
+    param.addInt(String8(AudioParameter::keyStreamFlags), (int)outputDesc->mFlags);
     if (outputDesc->mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) {
         mpClientInterface->setParameters(mPrimaryOutput, param.toString(), delayMs);
     } else {
