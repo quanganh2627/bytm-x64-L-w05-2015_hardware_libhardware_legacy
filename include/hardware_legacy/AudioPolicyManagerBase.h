@@ -595,6 +595,8 @@ protected:
 
         Vector <HwModule *> mHwModules;
 
+        static bool mIsDirectOutputActive; //check whether direct thread is active or not
+
 #ifdef AUDIO_POLICY_TEST
         Mutex   mLock;
         Condition mWaitWorkCV;
