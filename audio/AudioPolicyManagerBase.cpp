@@ -64,6 +64,8 @@
 
 namespace android_audio_legacy {
 
+bool AudioPolicyManagerBase :: mIsDirectOutputActive;
+
 // ----------------------------------------------------------------------------
 // AudioPolicyInterface implementation
 // ----------------------------------------------------------------------------
@@ -922,6 +924,11 @@ status_t AudioPolicyManagerBase::startOutput(audio_io_handle_t output,
     // necessary for a correct control of hardware output routing by startOutput() and stopOutput()
     outputDesc->changeRefCount(stream, 1);
 
+    if((outputDesc->mFlags & AudioSystem::OUTPUT_FLAG_DIRECT) && (mAvailableOutputDevices & AudioSystem::DEVICE_OUT_AUX_DIGITAL)){
+       ALOGD("startoutput() Direct thread is active");
+       mIsDirectOutputActive = true;
+    }
+
     if (outputDesc->mRefCount[stream] == 1) {
         audio_devices_t newDevice = getNewDevice(output, false /*fromCache*/);
 #ifdef BGM_ENABLED
@@ -1004,6 +1011,11 @@ status_t AudioPolicyManagerBase::stopOutput(audio_io_handle_t output,
     }
 
     AudioOutputDescriptor *outputDesc = mOutputs.valueAt(index);
+
+    if((outputDesc->mFlags & AudioSystem::OUTPUT_FLAG_DIRECT) && (mAvailableOutputDevices & AudioSystem::DEVICE_OUT_AUX_DIGITAL)){
+       ALOGD("startoutput() Direct thread is stopped -inactive");
+       mIsDirectOutputActive = false;
+    }
 
     // handle special case for sonification while in call
     if (isInCall()) {
@@ -2636,17 +2648,30 @@ AudioPolicyManagerBase::routing_strategy AudioPolicyManagerBase::getStrategy(
     case AudioSystem::RING:
         return STRATEGY_SONIFICATION_LOCAL;
     case AudioSystem::ALARM:
-        return STRATEGY_SONIFICATION;
+        if(mIsDirectOutputActive)
+          return STRATEGY_SONIFICATION_LOCAL;
+        else
+          return STRATEGY_SONIFICATION;
     case AudioSystem::NOTIFICATION:
-        return STRATEGY_SONIFICATION_RESPECTFUL;
+        if(mIsDirectOutputActive)
+          return STRATEGY_SONIFICATION_LOCAL;
+        else
+          return STRATEGY_SONIFICATION_RESPECTFUL;
     case AudioSystem::DTMF:
-        return STRATEGY_DTMF;
+        if(mIsDirectOutputActive)
+          return STRATEGY_SONIFICATION_LOCAL;
+        else
+          return STRATEGY_DTMF;
     default:
         ALOGE("unknown stream type");
     case AudioSystem::SYSTEM:
         // NOTE: SYSTEM stream uses MEDIA strategy because muting music and switching outputs
         // while key clicks are played produces a poor result
     case AudioSystem::TTS:
+        if(mIsDirectOutputActive)
+          return STRATEGY_SONIFICATION_LOCAL;
+        else
+          return STRATEGY_MEDIA;
     case AudioSystem::MUSIC:
         return STRATEGY_MEDIA;
     case AudioSystem::ENFORCED_AUDIBLE:
