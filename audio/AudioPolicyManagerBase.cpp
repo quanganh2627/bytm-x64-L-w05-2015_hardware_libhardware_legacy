@@ -1449,6 +1449,13 @@ bool AudioPolicyManagerBase::isOffloadSupported(uint32_t format,
         ALOGV("isOffloadSupported: Output not compatible for offload - use IA decode");
         return false;
     }
+
+    // check if the device state is inCall, if yes use IA decoding
+    if (isInCall()) {
+        ALOGV("isOffloadSupported: inCall mode, use IA decoding");
+        return false;
+    }
+
     ALOGD("isOffloadSupported: Return true with supported format=%x", format);
     return true;
 }
