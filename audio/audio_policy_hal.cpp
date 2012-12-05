@@ -134,6 +134,15 @@ static void ap_set_can_mute_enforced_audible(struct audio_policy *pol,
     lap->apm->setSystemProperty("ro.camera.sound.forced", can_mute ? "0" : "1");
 }
 
+/* if can_mute is true, then audio streams that are marked FM_RX
+ * can still be muted. */
+static void ap_set_can_mute_fm_rx(struct audio_policy *pol,
+                                             bool can_mute)
+{
+    struct legacy_audio_policy *lap = to_lap(pol);
+    lap->apm->setSystemProperty("ro.fmrx.sound.forced", can_mute ? "0" : "1");
+}
+
 static int ap_init_check(const struct audio_policy *pol)
 {
     const struct legacy_audio_policy *lap = to_clap(pol);
@@ -362,6 +371,7 @@ static int create_legacy_ap(const struct audio_policy_device *device,
     lap->policy.get_force_use = ap_get_force_use;
     lap->policy.set_can_mute_enforced_audible =
         ap_set_can_mute_enforced_audible;
+    lap->policy.set_can_mute_fm_rx= ap_set_can_mute_fm_rx;
     lap->policy.init_check = ap_init_check;
     lap->policy.get_output = ap_get_output;
     lap->policy.start_output = ap_start_output;
