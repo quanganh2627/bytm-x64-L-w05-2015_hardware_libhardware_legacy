@@ -557,6 +557,24 @@ AudioSystem::forced_config AudioPolicyManagerBase::getForceUse(AudioSystem::forc
 void AudioPolicyManagerBase::setSystemProperty(const char* property, const char* value)
 {
     ALOGV("setSystemProperty() property %s, value %s", property, value);
+    if (strcmp(property, "ro.camera.sound.forced") == 0) {
+        if (atoi(value)) {
+            ALOGV("ENFORCED_AUDIBLE cannot be muted");
+            mStreams[AudioSystem::ENFORCED_AUDIBLE].mCanBeMuted = false;
+        } else {
+            ALOGV("ENFORCED_AUDIBLE can be muted");
+            mStreams[AudioSystem::ENFORCED_AUDIBLE].mCanBeMuted = true;
+        }
+    }
+    if (strcmp(property, "ro.fmrx.sound.forced") == 0) {
+        if (atoi(value)) {
+            ALOGV("FM_RX cannot be muted");
+            mStreams[AudioSystem::FM_RX].mCanBeMuted = false;
+        } else {
+            ALOGV("FM_RX can be muted");
+            mStreams[AudioSystem::FM_RX].mCanBeMuted = true;
+        }
+    }
 }
 
 AudioPolicyManagerBase::IOProfile *AudioPolicyManagerBase::getProfileForDirectOutput(
@@ -2666,7 +2684,7 @@ uint32_t AudioPolicyManagerBase::setOutputDevice(audio_io_handle_t output,
     }
 
     // update stream volumes according to new device, force the reevaluation in case of FM
-    applyStreamVolumes(output, device, delayMs, mFmMode == MODE_FM_ON);
+    applyStreamVolumes(output, device, delayMs);//, mFmMode == MODE_FM_ON);
 
     return muteWaitMs;
 }
