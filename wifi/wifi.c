@@ -904,6 +904,7 @@ void wifi_close_supplicant_connection(const char *ifname)
         /* p2p sockets are closed after the monitor thread
          * receives the terminate on the exit socket
          */
+        pthread_mutex_unlock(&suppl_mutex);
         return;
     }
 
