@@ -3161,6 +3161,12 @@ status_t AudioPolicyManagerBase::checkAndSetVolume(int stream,
         if (stream == AudioSystem::BLUETOOTH_SCO) {
             mpClientInterface->setStreamVolume(AudioSystem::VOICE_CALL, volume, output, delayMs);
         }
+
+        // Update FM Rx volume
+        if (stream == AudioSystem::FM_RX) {
+            return mpClientInterface->setFmRxVolume(volume, delayMs);
+        }
+
         mpClientInterface->setStreamVolume((AudioSystem::stream_type)stream, volume, output, delayMs);
     }
 
