@@ -604,7 +604,14 @@ AudioPolicyManagerBase::IOProfile *AudioPolicyManagerBase::getProfileForDirectOu
                          mHwModules[i]->mName);
                    return mHwModules[i]->mOutputProfiles[j];
                }
-           } else if (profile->isCompatibleProfile(device, samplingRate, format,
+           } else if((channelMask <= AUDIO_CHANNEL_OUT_STEREO) &&
+                    (device == AudioSystem::DEVICE_OUT_AUX_DIGITAL)){
+              /*Direct output is selected only for multichannel content over HDMI
+                NOTE - if stereo contents needs direct thread over HDMI; this condition
+                       needs to be removed*/
+              ALOGI("make direct output unavaiable for stereo clips");
+              return 0;
+           }else if (profile->isCompatibleProfile(device, samplingRate, format,
                                            channelMask,
                                            AUDIO_OUTPUT_FLAG_DIRECT)) {
                    if (mAvailableOutputDevices & profile->mSupportedDevices) {
@@ -795,8 +802,9 @@ status_t AudioPolicyManagerBase::startOutput(audio_io_handle_t output,
     // necessary for a correct control of hardware output routing by startOutput() and stopOutput()
     outputDesc->changeRefCount(stream, 1);
 
-    if ((outputDesc->mFlags & AudioSystem::OUTPUT_FLAG_DIRECT) && (mAvailableOutputDevices & AudioSystem::DEVICE_OUT_AUX_DIGITAL)) {
-       ALOGD("startoutput() Direct thread is active");
+    if((outputDesc->mFlags & AudioSystem::OUTPUT_FLAG_DIRECT) && (mAvailableOutputDevices & AudioSystem::DEVICE_OUT_AUX_DIGITAL)
+        && (outputDesc->mChannelMask != AUDIO_CHANNEL_OUT_STEREO)){
+       ALOGD("startoutput() Direct thread is active for 0x%x channels",outputDesc->mChannelMask);
        mIsDirectOutputActive = true;
     }
 
