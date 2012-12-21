@@ -800,6 +800,15 @@ status_t AudioPolicyManagerBase::startOutput(audio_io_handle_t output,
        mIsDirectOutputActive = true;
     }
 
+    if(outputDesc->mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD){
+
+       // Informs primary HAL that a compressed output will be started
+       AudioParameter param;
+       int flags =  AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD;
+       param.addInt(String8(AudioParameter::keyStreamFlags), flags);
+       mpClientInterface->setParameters(0, param.toString(), 0);
+    }
+
     if (outputDesc->mRefCount[stream] == 1) {
         audio_devices_t newDevice = getNewDevice(output, false /*fromCache*/);
         routing_strategy strategy = getStrategy(stream);
@@ -865,6 +874,14 @@ status_t AudioPolicyManagerBase::stopOutput(audio_io_handle_t output,
     if((outputDesc->mFlags & AudioSystem::OUTPUT_FLAG_DIRECT) && (mAvailableOutputDevices & AudioSystem::DEVICE_OUT_AUX_DIGITAL)){
        ALOGD("stopoutput() Direct thread is stopped -inactive");
        mIsDirectOutputActive = false;
+    }
+
+    if(outputDesc->mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD){
+
+       // Informs primary HAL that a compressed output stops
+       AudioParameter param;
+       param.addInt(String8(AudioParameter::keyStreamFlags), 0);
+       mpClientInterface->setParameters(0, param.toString(), 0);
     }
 
     // handle special case for sonification while in call
@@ -937,12 +954,6 @@ void AudioPolicyManagerBase::releaseOutput(audio_io_handle_t output)
     if (mOutputs.valueAt(index)->mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) {
         mMusicOffloadOutput = false;
         ALOGV("ReleaseOutput mMusicOffloadOutput = %d", mMusicOffloadOutput);
-
-        AudioParameter param;
-        int flags =  (int)mOutputs.valueFor(mPrimaryOutput)->mFlags;
-        flags &= ~AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD;
-        param.addInt(String8(AudioParameter::keyStreamFlags), flags);
-        mpClientInterface->setParameters(mPrimaryOutput, param.toString(), 0);
     }
     if (mOutputs.valueAt(index)->mFlags & AudioSystem::OUTPUT_FLAG_DIRECT) {
         mpClientInterface->closeOutput(output);
@@ -2034,12 +2045,6 @@ void AudioPolicyManagerBase::closeOutput(audio_io_handle_t output)
     if (mMusicOffloadOutput) {
         mMusicOffloadOutput = false;
         ALOGV("closeOutput: mMusicOffloadOutput = %d", mMusicOffloadOutput);
-
-        AudioParameter param;
-        int flags =  (int)mOutputs.valueFor(mPrimaryOutput)->mFlags;
-        flags &= ~AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD;
-        param.addInt(String8(AudioParameter::keyStreamFlags), flags);
-        mpClientInterface->setParameters(mPrimaryOutput, param.toString(), 0);
     }
 
     mIsDirectOutputActive =  false;
@@ -2715,13 +2720,12 @@ uint32_t AudioPolicyManagerBase::setOutputDevice(audio_io_handle_t output,
         if (!(device != 0 && (outputDesc->mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD))) {
             ALOGV("setOutputDevice() setting same device %04x or null device for output %d", device, output);
             return muteWaitMs;
-       }  
+       }
     }
 
     ALOGV("setOutputDevice() changing device");
     // do the routing
     param.addInt(String8(AudioParameter::keyRouting), (int)device);
-    param.addInt(String8(AudioParameter::keyStreamFlags), (int)outputDesc->mFlags);
     if (outputDesc->mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) {
         mpClientInterface->setParameters(mPrimaryOutput, param.toString(), delayMs);
     } else {
