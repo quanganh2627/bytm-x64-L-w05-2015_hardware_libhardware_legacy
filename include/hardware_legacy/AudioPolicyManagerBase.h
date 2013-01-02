@@ -500,6 +500,8 @@ protected:
 
         audio_io_handle_t selectOutput(const SortedVector<audio_io_handle_t>& outputs,
                                        AudioSystem::output_flags flags);
+        audio_io_handle_t selectDirectOutput(const SortedVector<audio_io_handle_t>& outputs,
+                                       AudioSystem::output_flags flags);
         IOProfile *getInputProfile(audio_devices_t device,
                                    uint32_t samplingRate,
                                    uint32_t format,

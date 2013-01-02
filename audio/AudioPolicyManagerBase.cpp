@@ -598,7 +598,6 @@ AudioPolicyManagerBase::IOProfile *AudioPolicyManagerBase::getProfileForDirectOu
            IOProfile *profile = mHwModules[i]->mOutputProfiles[j];
 
            if ((flags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD)) {
-               ALOGI("flags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD");
                if (strcmp(mHwModules[i]->mName, AUDIO_HARDWARE_MODULE_ID_CODEC_OFFLOAD) == 0) {
                    ALOGI("AudioPolicyManagerBase: offload profile found %s",
                          mHwModules[i]->mName);
@@ -679,6 +678,16 @@ audio_io_handle_t AudioPolicyManagerBase::getOutput(AudioSystem::stream_type str
     if (profile != NULL) {
 
         ALOGV("getOutput() opening direct output device %x", device);
+        if (flags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) {
+            SortedVector<audio_io_handle_t> outputs = getOutputsForDevice(device, mOutputs);
+            output = selectDirectOutput(outputs, flags);
+
+            ALOGW_IF((output ==0), "getDirectOutput() could not find existing output for stream %d, samplingRate %d,"
+                "format %d, channels %x, flags %x", stream, samplingRate, format, channelMask, flags);
+
+            if (output != 0)
+                return output;
+        }
 
         AudioOutputDescriptor *outputDesc = new AudioOutputDescriptor(profile);
         outputDesc->mDevice = device;
@@ -714,7 +723,7 @@ audio_io_handle_t AudioPolicyManagerBase::getOutput(AudioSystem::stream_type str
         }
         addOutput(output, outputDesc);
         if (outputDesc->mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) {
-           mMusicOffloadOutput = true;
+            mMusicOffloadOutput = true;
         }
         ALOGV("getOutput() returns direct output %d", output);
         return output;
@@ -782,6 +791,43 @@ audio_io_handle_t AudioPolicyManagerBase::selectOutput(const SortedVector<audio_
     }
 
     return outputs[0];
+}
+
+audio_io_handle_t AudioPolicyManagerBase::selectDirectOutput(const SortedVector<audio_io_handle_t>& outputs,
+                                                       AudioSystem::output_flags flags)
+{
+    // select one output among several that provide a path to a particular device or set of
+    // devices (the list was previously build by getOutputsForDevice()).
+    // The priority is as follows:
+    // 1: the offload output
+
+    ALOGV("selectDirectOutput: flags %d", flags);
+
+    if (outputs.size() == 0) {
+        ALOGV("selectDirectOutput: outputs %d", outputs.size());
+        return 0;
+    }
+
+    audio_io_handle_t outputOffload = 0;
+
+    for (size_t i = 0; i < outputs.size(); i++) {
+        AudioOutputDescriptor *outputDesc = mOutputs.valueFor(outputs[i]);
+        if (!outputDesc->isDuplicated()) {
+            ALOGV("selectDirectOutput: outputDesc->mFlags  %d", outputDesc->mFlags);
+            if (outputDesc->mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) {
+                ALOGV("selectOutput: mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD");
+                outputOffload = outputs[i];
+            }
+        }
+    }
+
+    if (outputOffload != 0) {
+        ALOGV("selectOutput: returning outputOffload");
+        return outputOffload;
+    }
+
+    ALOGV("selectDirectOutput: returning 0");
+    return 0;
 }
 
 status_t AudioPolicyManagerBase::startOutput(audio_io_handle_t output,
@@ -960,7 +1006,26 @@ void AudioPolicyManagerBase::releaseOutput(audio_io_handle_t output)
     ALOGV("releaseOutput mOutputs.valueAt(index)->mFlags = 0x%x", mOutputs.valueAt(index)->mFlags);
     if (mOutputs.valueAt(index)->mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) {
         mMusicOffloadOutput = false;
-        ALOGV("ReleaseOutput mMusicOffloadOutput = %d", mMusicOffloadOutput);
+        ALOGV("releaseOutput mMusicOffloadOutput = %d", mMusicOffloadOutput);
+
+        AudioParameter param;
+        int flags =  (int)mOutputs.valueFor(mPrimaryOutput)->mFlags;
+        flags &= ~AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD;
+        param.addInt(String8(AudioParameter::keyStreamFlags), flags);
+        mpClientInterface->setParameters(mPrimaryOutput, param.toString(), 0);
+
+        AudioOutputDescriptor *outputDesc = mOutputs.valueAt(index);
+
+        // Close offload output only if ref count is zero.
+        if (outputDesc->refCount() == 0) {
+            ALOGV("releaseOutput: closeing output");
+            mpClientInterface->closeOutput(output);
+            delete mOutputs.valueAt(index);
+            mOutputs.removeItem(output);
+            mMusicOffloadOutput = false;
+            mPreviousOutputs = mOutputs;
+        }
+        return;
     }
     if (mOutputs.valueAt(index)->mFlags & AudioSystem::OUTPUT_FLAG_DIRECT) {
         mpClientInterface->closeOutput(output);
