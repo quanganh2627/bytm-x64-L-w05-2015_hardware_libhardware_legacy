@@ -792,17 +792,16 @@ status_t AudioPolicyManagerBase::startOutput(audio_io_handle_t output,
     // necessary for a correct control of hardware output routing by startOutput() and stopOutput()
     outputDesc->changeRefCount(stream, 1);
 
-    if((outputDesc->mFlags & AudioSystem::OUTPUT_FLAG_DIRECT) && (mAvailableOutputDevices & AudioSystem::DEVICE_OUT_AUX_DIGITAL)){
+    if ((outputDesc->mFlags & AudioSystem::OUTPUT_FLAG_DIRECT) && (mAvailableOutputDevices & AudioSystem::DEVICE_OUT_AUX_DIGITAL)) {
        ALOGD("startoutput() Direct thread is active");
        mIsDirectOutputActive = true;
     }
 
-    if(outputDesc->mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD){
+    if (outputDesc->mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) {
 
        // Informs primary HAL that a compressed output will be started
        AudioParameter param;
-       int flags =  AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD;
-       param.addInt(String8(AudioParameter::keyStreamFlags), flags);
+       param.addInt(String8(AudioParameter::keyStreamFlags), AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD);
        mpClientInterface->setParameters(0, param.toString(), 0);
     }
 
@@ -876,7 +875,7 @@ status_t AudioPolicyManagerBase::stopOutput(audio_io_handle_t output,
 
        // Informs primary HAL that a compressed output stops
        AudioParameter param;
-       param.addInt(String8(AudioParameter::keyStreamFlags), 0);
+       param.addInt(String8(AudioParameter::keyStreamFlags), AUDIO_OUTPUT_FLAG_NONE);
        mpClientInterface->setParameters(0, param.toString(), 0);
     }
 
