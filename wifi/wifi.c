@@ -710,7 +710,8 @@ void log_cmd(const char *cmd)
             strncpy(pbuf, cmd, strlen(cmd) + 1);
             pbuf[strlen(cmd)]='\0';
             char *p = strchr(pbuf, '\"');
-            *p = '\0';
+            if (p)
+                *p = '\0';
             LOGI("CMD: %s\n", pbuf);
         }
         free(pbuf);
