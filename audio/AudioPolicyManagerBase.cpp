@@ -333,7 +333,7 @@ void AudioPolicyManagerBase::setPhoneState(int state)
         newDevice = hwOutputDesc->device();
     }
 
-    int delayMs = 0;
+    uint32_t delayMs = 0;
     if (isStateInCall(state)) {
         nsecs_t sysTime = systemTime();
         for (size_t i = 0; i < mOutputs.size(); i++) {
