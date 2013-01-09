@@ -169,7 +169,7 @@ public:
     //Check if offload is possible for given sample rate, bitrate, duration, video file
     //streaming and audio policy.
     virtual bool isOffloadSupported(uint32_t format,
-                                    AudioSystem::stream_type stream,
+                                    audio_stream_type_t stream,
                                     uint32_t samplingRate,
                                     uint32_t bitRate,
                                     int64_t duration,
