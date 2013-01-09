@@ -2775,6 +2775,8 @@ uint32_t AudioPolicyManagerBase::setOutputDevice(audio_io_handle_t output,
         // Device is null and does not reflect the routing. Save the necessity to force
         // re-routing upon next attempt to select a non-null device for this output
         outputDesc->mForceRouting = true;
+        // When the current device is null, routing is not forced
+        force = false;
     }
 
     muteWaitMs = checkDeviceMuteStrategies(outputDesc, prevDevice, delayMs);
