@@ -343,7 +343,7 @@ static bool ap_is_offload_supported(struct audio_policy *pol,
     struct legacy_audio_policy *lap = to_lap(pol);
 
     ALOGV("%s: tid %d", __func__, gettid());
-    return lap->apm->isOffloadSupported(format, (AudioSystem::stream_type)stream,
+    return lap->apm->isOffloadSupported(format, stream,
                        samplingRate, bitRate, duration, isVideo, isStreaming);
 }
 

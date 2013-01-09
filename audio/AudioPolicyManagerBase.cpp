@@ -386,7 +386,7 @@ void AudioPolicyManagerBase::setPhoneState(int state)
     // when changing from ring tone to in call mode, mute the ringing tone
     // immediately and delay the route change to avoid sending the ring tone
     // tail into the earpiece or headset.
-    int delayMs = 0;
+    uint32_t delayMs = 0;
     if (isStateInCall(state) && oldState == AudioSystem::MODE_RINGTONE) {
         // delay the device change command by twice the output latency to have some margin
         // and be sure that audio buffers not yet affected by the mute are out when
@@ -1495,7 +1495,7 @@ status_t AudioPolicyManagerBase::dump(int fd)
 }
 
 bool AudioPolicyManagerBase::isOffloadSupported(uint32_t format,
-                                    AudioSystem::stream_type stream,
+                                    audio_stream_type_t stream,
                                     uint32_t samplingRate,
                                     uint32_t bitRate,
                                     int64_t duration,
@@ -1586,6 +1586,7 @@ AudioPolicyManagerBase::AudioPolicyManagerBase(AudioPolicyClientInterface *clien
       Thread(false),
 #endif //AUDIO_POLICY_TEST
       mPrimaryOutput((audio_io_handle_t)0),
+      mMusicOffloadOutput(false),
       mAvailableOutputDevices(AUDIO_DEVICE_NONE),
       mPhoneState(AudioSystem::MODE_NORMAL),
       mFmMode(0),
@@ -1595,8 +1596,7 @@ AudioPolicyManagerBase::AudioPolicyManagerBase(AudioPolicyClientInterface *clien
       mTotalEffectsMemory(0),
       mA2dpSuspended(false),
       mHasA2dp(false),
-      mHasUsb(false),
-      mMusicOffloadOutput(false)
+      mHasUsb(false)
 {
     mpClientInterface = clientInterface;
 
@@ -2675,7 +2675,7 @@ uint32_t AudioPolicyManagerBase::checkDeviceMuteStrategies(AudioOutputDescriptor
     uint32_t muteWaitMs = 0;
     audio_devices_t device = outputDesc->device();
 
-    int prevPopCount = outputDesc->mPrevPopCount;
+    uint32_t prevPopCount = outputDesc->mPrevPopCount;
     if(prevPopCount == AudioSystem::popCount(device)) {
         outputDesc->mPrevPopCount = AudioSystem::popCount(device);
         return 0;

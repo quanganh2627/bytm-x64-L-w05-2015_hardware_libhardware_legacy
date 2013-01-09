@@ -141,7 +141,7 @@ public:
         virtual status_t dump(int fd);
 
         virtual bool isOffloadSupported(uint32_t format,
-                                         AudioSystem::stream_type stream,
+                                         audio_stream_type_t stream,
                                          uint32_t samplingRate,
                                          uint32_t bitRate,
                                          int64_t duration,
@@ -546,7 +546,7 @@ protected:
                                                 // without AUDIO_DEVICE_BIT_IN to allow direct bit
                                                 // field comparisons
         int mPhoneState;                                                    // current phone state
-        uint32_t                 mFmMode;                                   // current fm radio mode
+        uint32_t mFmMode;                                                   // current fm radio mode
         AudioSystem::forced_config mForceUse[AudioSystem::NUM_FORCE_USE];   // current forced use configuration
 
         StreamDescriptor mStreams[AudioSystem::NUM_STREAM_TYPES];           // stream descriptors for volume control
