@@ -2423,10 +2423,10 @@ audio_devices_t AudioPolicyManagerBase::getDeviceForStrategy(routing_strategy st
             device = getDeviceForStrategy(STRATEGY_SONIFICATION, false /*fromCache*/);
         } else if (isStreamActive(AudioSystem::MUSIC, SONIFICATION_RESPECTFUL_AFTER_MUSIC_DELAY)) {
             // while media is playing (or has recently played),
-            // use the same device if device is not WIDI,
+            // use the same device if device is not WIDI or HDMI,
             // otherwise fall back on the sonification behavior
             device = getDeviceForStrategy(STRATEGY_MEDIA, false /*fromCache*/);
-            if (device == AudioSystem::DEVICE_OUT_WIDI)
+            if (device == AudioSystem::DEVICE_OUT_WIDI || device == AudioSystem::DEVICE_OUT_AUX_DIGITAL)
                 device = getDeviceForStrategy(STRATEGY_SONIFICATION, false /*fromCache*/);
         } else {
             // when media is not playing anymore, fall back on the sonification behavior
