@@ -163,6 +163,12 @@ status_t AudioStreamOutStub::getRenderPosition(uint32_t *dspFrames)
     return INVALID_OPERATION;
 }
 
+status_t AudioStreamOutStub::flush()
+{
+    return INVALID_OPERATION;
+}
+
+
 // ----------------------------------------------------------------------------
 
 status_t AudioStreamInStub::set(int *pFormat, uint32_t *pChannels, uint32_t *pRate,

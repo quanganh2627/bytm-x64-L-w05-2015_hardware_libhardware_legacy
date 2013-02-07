@@ -2921,6 +2921,7 @@ uint32_t AudioPolicyManagerBase::setOutputDevice(audio_io_handle_t output,
     if (outputDesc->mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) {
         mpClientInterface->setParameters(mPrimaryOutput, param.toString(), delayMs);
     } else {
+        param.addInt(String8(AudioParameter::keyStreamFlags), (int)outputDesc->mFlags);
         mpClientInterface->setParameters(output, param.toString(), delayMs);
     }
 
