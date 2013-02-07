@@ -116,6 +116,11 @@ public:
      */
     virtual status_t    getNextWriteTimestamp(int64_t *timestamp);
 
+    /**
+     * Flusing the data in the pipeline. Useful for seek in deep buffer.
+     */
+    virtual status_t    flush() = 0;
+
 };
 
 /**
