@@ -42,6 +42,7 @@ public:
     virtual status_t    setParameters(const String8& keyValuePairs) { return NO_ERROR;}
     virtual String8     getParameters(const String8& keys);
     virtual status_t    getRenderPosition(uint32_t *dspFrames);
+    virtual status_t    flush();
 };
 
 class AudioStreamInStub : public AudioStreamIn {
