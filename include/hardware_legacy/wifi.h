@@ -149,6 +149,20 @@ int wifi_change_fw_path(const char *fwpath);
 #define WIFI_ENTROPY_FILE	"/data/misc/wifi/entropy.bin"
 int ensure_entropy_file_exists();
 
+#ifndef BIT
+#  define BIT(X)	(1 << X)
+#endif
+
+/**
+ * Different operating mode supported by broadcom driver
+ */
+enum {
+	WIFI_STA_MODE	= BIT(0),
+	WIFI_AP_MODE	= BIT(1),
+	WIFI_P2P_MODE	= BIT(2),
+};
+int wifi_switch_driver_mode(int mode);
+
 #if __cplusplus
 };  // extern "C"
 #endif
