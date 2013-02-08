@@ -23,6 +23,7 @@
 #include <unistd.h>
 #include <poll.h>
 #include <pthread.h>
+#include <assert.h>
 
 #include "hardware_legacy/wifi.h"
 #include "libwpa_client/wpa_ctrl.h"
@@ -87,6 +88,10 @@ static char primary_iface[PROPERTY_VALUE_MAX];
 
 #ifndef WIFI_DRIVER_FW_PATH_PARAM
 #define WIFI_DRIVER_FW_PATH_PARAM	"/sys/module/wlan/parameters/fwpath"
+#endif
+
+#ifndef WIFI_DRIVER_MODE_PATH_PARAM
+#define WIFI_DRIVER_MODE_PATH_PARAM	"/sys/module/bcmdhd/parameters/op_mode"
 #endif
 
 #define WIFI_DRIVER_LOADER_DELAY	1000000
@@ -944,24 +949,27 @@ const char *wifi_get_fw_path(int fw_type)
     return NULL;
 }
 
-int wifi_change_fw_path(const char *fwpath)
+static int write_to_file(const char *path, const char *data, size_t len)
 {
-    int len;
-    int fd;
+    int fd = -1;
     int ret = 0;
 
-    if (!fwpath)
-        return ret;
-    fd = TEMP_FAILURE_RETRY(open(WIFI_DRIVER_FW_PATH_PARAM, O_WRONLY));
+    assert(path);
+    assert(data);
+
+    fd = TEMP_FAILURE_RETRY(open(path, O_WRONLY));
     if (fd < 0) {
-        ALOGE("Failed to open wlan fw path param (%s)", strerror(errno));
-        return -1;
+	ALOGE("Failed to open %s (%s)",
+	      path, strerror(errno));
+	return -errno;
     }
-    len = strlen(fwpath) + 1;
-    if (TEMP_FAILURE_RETRY(write(fd, fwpath, len)) != len) {
-        ALOGE("Failed to write wlan fw path param (%s)", strerror(errno));
-        ret = -1;
+
+    if (TEMP_FAILURE_RETRY(write(fd, data, len)) != (int) len) {
+	ALOGE("Failed to write %s in %s (%s)",
+	      data, path, strerror(errno));
+	ret = -errno;
     }
+
     close(fd);
     return ret;
 }
@@ -1095,4 +1103,41 @@ int wifi_get_AP_station(char *cmd, char *addr, size_t addr_len)
     *pos = '\0';
     strlcpy(addr, reply, addr_len);
     return 0;
+}
+
+int wifi_change_fw_path(const char *fwpath)
+{
+    return write_to_file(WIFI_DRIVER_FW_PATH_PARAM,
+			 fwpath, strlen(fwpath) + 1);
+}
+
+int wifi_switch_driver_mode(int mode)
+{
+    char mode_str[8];
+
+    /**
+     * BIT(0), BIT(1),.. come from dhd.h in the driver code, and we need to
+     * stay aligned with their definition.
+     *
+     * TODO:
+     *   - Find a way to include dhd.h and use the values from there directly to
+     *     prevent any problems in future modifications of the ABI.
+     */
+    switch (mode) {
+    case WIFI_STA_MODE:
+	snprintf(mode_str, sizeof(mode_str), "%u\n", BIT(0) | BIT(2) | BIT(4));
+	break;
+    case WIFI_AP_MODE:
+	snprintf(mode_str, sizeof(mode_str), "%u\n", BIT(1));
+	break;
+    case WIFI_P2P_MODE:
+	snprintf(mode_str, sizeof(mode_str), "%u\n", BIT(2));
+	break;
+    default:
+	ALOGE("wifi_switch_driver_mode: invalid mode %ud", mode);
+	return -EINVAL;
+    }
+
+    return write_to_file(WIFI_DRIVER_MODE_PATH_PARAM,
+			 mode_str, strlen(mode_str));
 }
