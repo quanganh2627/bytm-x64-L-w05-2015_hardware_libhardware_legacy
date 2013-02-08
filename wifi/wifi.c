@@ -114,6 +114,12 @@ static const char P2P_CONFIG_FILE[]     = "/data/misc/wifi/p2p_supplicant.conf";
 static const char CONTROL_IFACE_PATH[]  = "/data/misc/wifi/sockets";
 static const char MODULE_FILE[]         = "/proc/modules";
 
+/*
+ * This gets defined by the script load_bcmdriver in
+ * vendor/intel/common/wifi/bcm_specific/
+ */
+static const char BCM_PROP_CHIP[]	= "wlan.bcm.chip";
+
 static const char SUPP_ENTROPY_FILE[]   = WIFI_ENTROPY_FILE;
 static unsigned char dummy_key[21] = { 0x02, 0x11, 0xbe, 0x33, 0x43, 0x35,
                                        0x68, 0x47, 0x84, 0x99, 0xa9, 0x2b,
@@ -935,14 +941,40 @@ int wifi_command(const char *ifname, const char *command, char *reply, size_t *r
 
 const char *wifi_get_fw_path(int fw_type)
 {
+    char bcm_prop_chip[PROPERTY_VALUE_MAX];
+
     switch (fw_type) {
     case WIFI_GET_FW_PATH_STA:
-        return WIFI_DRIVER_FW_PATH_STA;
+	if (!property_get(BCM_PROP_CHIP, bcm_prop_chip, NULL)) {
+	    if (strstr(bcm_prop_chip, "4334"))
+		return WIFI_DRIVER_4334_FW_PATH_STA;
+	    else if (strstr(bcm_prop_chip, "4335"))
+		return WIFI_DRIVER_4335_FW_PATH_STA;
+	}
+	else
+	    return WIFI_DRIVER_FW_PATH_STA;
     case WIFI_GET_FW_PATH_AP:
-        return WIFI_DRIVER_FW_PATH_AP;
+	if (!property_get(BCM_PROP_CHIP, bcm_prop_chip, NULL)) {
+	    if (strstr(bcm_prop_chip, "4334"))
+		return WIFI_DRIVER_4334_FW_PATH_AP;
+	    else if (strstr(bcm_prop_chip, "4335"))
+		return WIFI_DRIVER_4335_FW_PATH_AP;
+	}
+	else
+	    return WIFI_DRIVER_FW_PATH_AP;
     case WIFI_GET_FW_PATH_P2P:
-        return WIFI_DRIVER_FW_PATH_P2P;
+	if (!property_get(BCM_PROP_CHIP, bcm_prop_chip, NULL)) {
+	    if (strstr(bcm_prop_chip, "4334"))
+		return WIFI_DRIVER_4334_FW_PATH_P2P;
+	    else if (strstr(bcm_prop_chip, "4335"))
+		return WIFI_DRIVER_4335_FW_PATH_P2P;
+	}
+	else
+	    return WIFI_DRIVER_FW_PATH_P2P;
+    default:
+	    ALOGE("Unknown firmware type (%d)", fw_type);
     }
+
     return NULL;
 }
 
