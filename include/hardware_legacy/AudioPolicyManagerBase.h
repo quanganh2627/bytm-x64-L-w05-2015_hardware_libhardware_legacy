@@ -159,6 +159,7 @@ protected:
             STRATEGY_DTMF,
             STRATEGY_ENFORCED_AUDIBLE,
 	    STRATEGY_FM_RADIO,
+            STRATEGY_BACKGROUND_MUSIC,
             NUM_STRATEGIES
         };
 
@@ -476,6 +477,9 @@ protected:
                     void        exit();
         int testOutputIndex(audio_io_handle_t output);
 #endif //AUDIO_POLICY_TEST
+#ifdef BGM_ENABLED
+        bool IsBackgroundMusicSupported(AudioSystem::stream_type stream);
+#endif
 
         status_t setEffectEnabled(EffectDescriptor *pDesc, bool enabled);
 
@@ -519,6 +523,7 @@ protected:
                                      const char *name);
         static audio_output_flags_t parseFlagNames(char *name);
         static audio_devices_t parseDeviceNames(char *name);
+
         void loadSamplingRates(char *name, IOProfile *profile);
         void loadFormats(char *name, IOProfile *profile);
         void loadOutChannels(char *name, IOProfile *profile);
@@ -591,6 +596,12 @@ protected:
         uint32_t        mTestChannels;
         uint32_t        mTestLatencyMs;
 #endif //AUDIO_POLICY_TEST
+
+#ifdef BGM_ENABLED
+        /*flag to keep track of background music*/
+        bool     mIsBGMEnabled;
+        audio_io_handle_t mBGMOutput;
+#endif /*BGM_ENABLED*/
 
 private:
         static float volIndexToAmpl(audio_devices_t device, const StreamDescriptor& streamDesc,
