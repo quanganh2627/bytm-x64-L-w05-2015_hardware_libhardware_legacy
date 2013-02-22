@@ -339,25 +339,6 @@ void AudioPolicyManagerBase::setPhoneState(int state)
     // store previous phone state for management of sonification strategies below
     int oldState = mPhoneState;
     mPhoneState = state;
-    bool force = false;
-
-    // are we entering or starting a call
-    if (!isStateInCall(oldState) && isStateInCall(state)) {
-        ALOGV("  Entering call in setPhoneState()");
-        // force routing command to audio hardware when starting a call
-        // even if no device change is needed
-        force = true;
-    } else if (isStateInCall(oldState) && !isStateInCall(state)) {
-        ALOGV("  Exiting call in setPhoneState()");
-        // force routing command to audio hardware when exiting a call
-        // even if no device change is needed
-        force = true;
-    } else if (isStateInCall(state) && (state != oldState)) {
-        ALOGV("  Switching between telephony and VoIP in setPhoneState()");
-        // force routing command to audio hardware when switching between telephony and VoIP
-        // even if no device change is needed
-        force = true;
-    }
 
     // check for device and output changes triggered by new phone state
 
@@ -408,12 +389,11 @@ void AudioPolicyManagerBase::setPhoneState(int state)
         }
     }
 
-    // **FIX ME ** Changed during MR1 rebase as force instread of true
     //change routing is necessary
 
-    setOutputDevice(mPrimaryOutput, newDevice, force, delayMs);
+    setOutputDevice(mPrimaryOutput, newDevice, true, delayMs);
     if (offloadOutput && mMusicOffloadOutput) {
-        setOutputDevice(offloadOutput, newDevice, force, delayMs);
+        setOutputDevice(offloadOutput, newDevice, true, delayMs);
     }
     // if entering in call state, handle special case of active streams
     // pertaining to sonification strategy see handleIncallSonification()
@@ -1001,24 +981,17 @@ void AudioPolicyManagerBase::releaseOutput(audio_io_handle_t output)
 
     ALOGV("releaseOutput mOutputs.valueAt(index)->mFlags = 0x%x", mOutputs.valueAt(index)->mFlags);
     if (mOutputs.valueAt(index)->mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) {
-        mMusicOffloadOutput = false;
-        ALOGV("releaseOutput mMusicOffloadOutput = %d", mMusicOffloadOutput);
-
-        AudioParameter param;
-        int flags =  (int)mOutputs.valueFor(mPrimaryOutput)->mFlags;
-        flags &= ~AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD;
-        param.addInt(String8(AudioParameter::keyStreamFlags), flags);
-        mpClientInterface->setParameters(mPrimaryOutput, param.toString(), 0);
 
         AudioOutputDescriptor *outputDesc = mOutputs.valueAt(index);
 
         // Close offload output only if ref count is zero.
         if (outputDesc->refCount() == 0) {
-            ALOGV("releaseOutput: closeing output");
+            ALOGV("releaseOutput: closing output");
             mpClientInterface->closeOutput(output);
             delete mOutputs.valueAt(index);
             mOutputs.removeItem(output);
             mMusicOffloadOutput = false;
+            ALOGV("releaseOutput mMusicOffloadOutput = %d", mMusicOffloadOutput);
             mPreviousOutputs = mOutputs;
         }
         return;

@@ -386,10 +386,13 @@ int update_ctrl_interface(const char *config_file) {
         int ilen = 0;
         int mlen = strlen(ifc);
         int nwrite;
-        if (strncmp(ifc, iptr, mlen) != 0) {
+
+        /* Get file iface name length */
+        while (((ilen + (iptr - pbuf)) < nread) && (iptr[ilen] != '\n'))
+            ilen++;
+
+        if (mlen != ilen || strncmp(ifc, iptr, mlen) != 0) {
             ALOGE("ctrl_interface != %s", ifc);
-            while (((ilen + (iptr - pbuf)) < nread) && (iptr[ilen] != '\n'))
-                ilen++;
             mlen = ((ilen >= mlen) ? ilen : mlen) + 1;
             memmove(iptr + mlen, iptr + ilen + 1, nread - (iptr + ilen + 1 - pbuf));
             memset(iptr, '\n', mlen);
