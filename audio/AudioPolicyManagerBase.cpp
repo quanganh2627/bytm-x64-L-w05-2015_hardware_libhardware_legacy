@@ -2147,7 +2147,7 @@ void AudioPolicyManagerBase::checkOutputForAllStrategies()
     checkOutputForStrategy(STRATEGY_DTMF);
 }
 
-audio_io_handle_t AudioPolicyManagerBase::getA2dpOutput()
+audio_io_handle_t AudioPolicyManagerBase::getA2dpOutput() const
 {
     if (!mHasA2dp) {
         return 0;
@@ -2983,16 +2983,11 @@ void AudioPolicyManagerBase::initializeVolumeCurves()
 
 float AudioPolicyManagerBase::computeVolume(int stream,
                                             int index,
-                                            audio_io_handle_t output,
                                             audio_devices_t device)
 {
+    LOG_ALWAYS_FATAL_IF(device == AUDIO_DEVICE_NONE);
     float volume = 1.0;
-    AudioOutputDescriptor *outputDesc = mOutputs.valueFor(output);
-    StreamDescriptor &streamDesc = mStreams[stream];
-
-    if (device == AUDIO_DEVICE_NONE) {
-        device = outputDesc->device();
-    }
+    const StreamDescriptor &streamDesc = mStreams[stream];
 
     // if volume is not 0 (not muted), force media volume to max on digital output
     if (stream == AudioSystem::MUSIC &&
@@ -3032,10 +3027,7 @@ float AudioPolicyManagerBase::computeVolume(int stream,
         if (isStreamActive(AudioSystem::MUSIC, SONIFICATION_HEADSET_MUSIC_DELAY) ||
                 mLimitRingtoneVolume) {
             audio_devices_t musicDevice = getDeviceForStrategy(STRATEGY_MEDIA, true /*fromCache*/);
-            float musicVol = computeVolume(AudioSystem::MUSIC,
-                               mStreams[AudioSystem::MUSIC].getVolumeIndex(musicDevice),
-                               output,
-                               musicDevice);
+            float musicVol = getVolume(AudioSystem::MUSIC, musicDevice);
             float minVol = (musicVol > SONIFICATION_HEADSET_VOLUME_MIN) ?
                                 musicVol : SONIFICATION_HEADSET_VOLUME_MIN;
             if (volume > minVol) {
@@ -3046,6 +3038,12 @@ float AudioPolicyManagerBase::computeVolume(int stream,
     }
 
     return volume;
+}
+
+// Returns the stream volume
+float AudioPolicyManagerBase::getVolume(int stream, audio_devices_t device)
+{
+    return computeVolume(stream, mStreams[stream].getVolumeIndex(device), device);
 }
 
 status_t AudioPolicyManagerBase::checkAndSetVolume(int stream,
@@ -3071,7 +3069,8 @@ status_t AudioPolicyManagerBase::checkAndSetVolume(int stream,
         return INVALID_OPERATION;
     }
 
-    float volume = computeVolume(stream, index, output, device);
+    audio_devices_t checkedDevice = (device == AUDIO_DEVICE_NONE) ? mOutputs.valueFor(output)->device() : device;
+    float volume = computeVolume(stream, index, checkedDevice);
     // We actually change the volume if:
     // - the float value returned by computeVolume() changed
     // - the force flag is set
@@ -3233,7 +3232,7 @@ bool AudioPolicyManagerBase::isStreamOfTypeSonification(AudioSystem::stream_type
             (strategy == STRATEGY_SONIFICATION_RESPECTFUL));
 }
 
-bool AudioPolicyManagerBase::isInCall()
+bool AudioPolicyManagerBase::isInCall() const
 {
     return isStateInCall(mPhoneState);
 }
@@ -3445,7 +3444,7 @@ AudioPolicyManagerBase::StreamDescriptor::StreamDescriptor()
     mIndexCur.add(AUDIO_DEVICE_OUT_DEFAULT, 0);
 }
 
-int AudioPolicyManagerBase::StreamDescriptor::getVolumeIndex(audio_devices_t device)
+int AudioPolicyManagerBase::StreamDescriptor::getVolumeIndex(audio_devices_t device) const
 {
     device = AudioPolicyManagerBase::getDeviceForVolume(device);
     // there is always a valid entry for AUDIO_DEVICE_OUT_DEFAULT
@@ -3860,9 +3859,9 @@ void AudioPolicyManagerBase::loadOutChannels(char *name, IOProfile *profile)
     return;
 }
 
-status_t AudioPolicyManagerBase::loadInput(cnode *root, HwModule *module)
+status_t AudioPolicyManagerBase::loadInput(const cnode *root, HwModule *module)
 {
-    cnode *node = root->first_child;
+    const cnode *node = root->first_child;
 
     IOProfile *profile = new IOProfile(module);
 
@@ -3901,7 +3900,7 @@ status_t AudioPolicyManagerBase::loadInput(cnode *root, HwModule *module)
     }
 }
 
-status_t AudioPolicyManagerBase::loadOutput(cnode *root, HwModule *module)
+status_t AudioPolicyManagerBase::loadOutput(const cnode *root, HwModule *module)
 {
     cnode *node = root->first_child;
 
@@ -4005,6 +4004,20 @@ void AudioPolicyManagerBase::loadHwModules(cnode *root)
     }
 }
 
+void AudioPolicyManagerBase::loadCustomProperties(const cnode *root)
+{
+    const cnode *node = root->first_child;
+
+    while (node) {
+        String8 aKey(node->name);
+        String8 aValue(node->value);
+        // Add the property in the custom properties map
+        mCustomPropertiesMap.add(aKey, aValue);
+
+        node = node->next;
+    }
+}
+
 void AudioPolicyManagerBase::loadGlobalConfig(cnode *root)
 {
     cnode *node = config_find(root, GLOBAL_CONFIG_TAG);
@@ -4028,6 +4041,9 @@ void AudioPolicyManagerBase::loadGlobalConfig(cnode *root)
         } else if (strcmp(ATTACHED_INPUT_DEVICES_TAG, node->name) == 0) {
             mAvailableInputDevices = parseDeviceNames((char *)node->value) & ~AUDIO_DEVICE_BIT_IN;
             ALOGV("loadGlobalConfig() mAvailableInputDevices %04x", mAvailableInputDevices);
+        } else if (strcmp(GLOBAL_CUSTOM_PROPERTIES, node->name) == 0) {
+            // Load custom properties section
+            loadCustomProperties(node);
         }
         node = node->next;
     }
@@ -4084,6 +4100,93 @@ void AudioPolicyManagerBase::defaultAudioPolicyConfig(void)
     module->mInputProfiles.add(profile);
 
     mHwModules.add(module);
+}
+
+bool AudioPolicyManagerBase::getCustomPropertyAsString(const String8 &name, String8 &value) const
+{
+    if (mCustomPropertiesMap.indexOfKey(name) == NAME_NOT_FOUND) {
+        return false;
+    }
+    // Retrieve the value associated to the key
+    value = mCustomPropertiesMap.valueFor(name);
+    return true;
+}
+
+bool AudioPolicyManagerBase::getCustomPropertyAsLong(const String8 &name, long &value) const
+{
+    String8 strValue;
+
+    if (!getCustomPropertyAsString(name, strValue)) {
+        return false;
+    }
+
+    const char *valueAsChars = strValue.string();
+    char *endp;
+    long tmpValue = strtol(valueAsChars, &endp, 10);
+    if (*endp != '\0') {
+        ALOGW("Bad long value for custom property '%s': %s",name.string(),valueAsChars);
+        return false;
+    }
+
+    value = tmpValue;
+    return true;
+}
+
+bool AudioPolicyManagerBase::getCustomPropertyAsULong(const String8 &name, unsigned long &value) const
+{
+    String8 strValue;
+
+    if (!getCustomPropertyAsString(name, strValue)) {
+        return false;
+    }
+
+    const char *valueAsChars = strValue.string();
+    char *endp;
+    unsigned long tmpValue = strtoul(valueAsChars, &endp, 10);
+    if (*endp != '\0') {
+        ALOGW("Bad unsigned long value for custom property '%s': %s",name.string(),valueAsChars);
+        return false;
+    }
+
+    value = tmpValue;
+    return true;
+}
+
+bool AudioPolicyManagerBase::getCustomPropertyAsFloat(const String8 &name, float &value) const
+{
+    String8 strValue;
+
+    if (!getCustomPropertyAsString(name, strValue)) {
+        return false;
+    }
+
+    const char *valueAsChars = strValue.string();
+    char *endp;
+    float tmpValue = strtof(valueAsChars, &endp);
+    if (*endp != '\0') {
+        ALOGW("Bad float value for custom property '%s': %s",name.string(),valueAsChars);
+        return false;
+    }
+
+    value = tmpValue;
+    return true;
+}
+
+bool AudioPolicyManagerBase::getCustomPropertyAsBool(const String8 &name, bool &value) const
+{
+    String8 strValue;
+
+    if (!getCustomPropertyAsString(name, strValue)) {
+        return false;
+    }
+
+    if ((strValue != "true") && (strValue != "false")) {
+        ALOGW("Bad boolean value for custom property '%s': %s",name.string(),strValue.string());
+        return false;
+    }
+
+    value = (strValue == "true");
+    return true;
 }
 
 }; // namespace android
