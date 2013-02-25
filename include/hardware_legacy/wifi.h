@@ -72,6 +72,33 @@ int wifi_connect_to_supplicant(const char *ifname);
 void wifi_close_supplicant_connection(const char *ifname);
 
 /**
+ * Open a connection to hostapd daemon for hotspot operation.
+ *
+ * @return 0 on success, < 0 on failure.
+ */
+int wifi_connect_to_hostapd();
+
+/**
+ * Close connection to hostapd.
+ *
+ * @return 0 on success, < 0 on failure.
+ */
+void wifi_close_hostapd_connection();
+
+/**
+ * wifi_get_AP_station_list() issues a command to get all
+ * connected stations in hotspot mode.
+ *
+ * @param reply is a buffer to receive a reply string
+ * @param reply_len on entry, this is the maximum length of
+ *        the reply buffer. On exit, the number of
+ *        bytes in the reply buffer.
+ *
+ * @return 0 if successful, < 0 if an error.
+ */
+int  wifi_get_AP_station_list(char *reply, size_t *reply_len);
+
+/**
  * wifi_wait_for_event() performs a blocking call to 
  * get a Wi-Fi event and returns a string representing 
  * a Wi-Fi event when it occurs.

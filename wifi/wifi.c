@@ -965,3 +965,134 @@ int wifi_change_fw_path(const char *fwpath)
     close(fd);
     return ret;
 }
+
+/* Wifi_Hotspot: This function connects to hostapd daemon  */
+int wifi_connect_to_hostapd()
+{
+    char ifname[256];
+    int index = PRIMARY;
+
+    /* Clear out any stale socket files that might be left over. */
+    wifi_wpa_ctrl_cleanup();
+
+    property_get("ap.interface", ifname, "");
+
+    ctrl_conn[index] = wpa_ctrl_open(ifname);
+    if (ctrl_conn[index] == NULL) {
+        ALOGE("Unable to open connection to ctrl_conn of hostapd on \"%s\": %s",
+             ifname, strerror(errno));
+        return -1;
+    }
+    monitor_conn[index] = wpa_ctrl_open(ifname);
+    if (monitor_conn[index] == NULL) {
+        ALOGE("Unable to open connection to monitor_conn of hostapd on %s", ifname);
+        wpa_ctrl_close(ctrl_conn[index]);
+        ctrl_conn[index] = NULL;
+        return -1;
+    }
+    if (wpa_ctrl_attach(monitor_conn[index]) != 0) {
+        ALOGE("Unable to attatch  connection to monitor_conn of hostapd on %s",ifname);
+        wpa_ctrl_close(monitor_conn[index]);
+        wpa_ctrl_close(ctrl_conn[index]);
+        ctrl_conn[index] = monitor_conn[index] = NULL;
+        return -1;
+    }
+
+    if (socketpair(AF_UNIX, SOCK_STREAM, 0, exit_sockets[index]) == -1) {
+        ALOGE("Unable to socketpair to hostapd on %s", ifname);
+        wpa_ctrl_close(monitor_conn[index]);
+        wpa_ctrl_close(ctrl_conn[index]);
+        ctrl_conn[index] = monitor_conn[index] = NULL;
+        return -1;
+    }
+
+    return 0;
+}
+
+void wifi_close_hostapd_connection()
+{
+    int index = PRIMARY;
+
+    LOGD("Wifi_Hotspot: Close connection to hostapd\n");
+    if (ctrl_conn[index] != NULL) {
+        wpa_ctrl_close(ctrl_conn[index]);
+        ctrl_conn[index] = NULL;
+    }
+
+    if (monitor_conn[index] != NULL) {
+        wpa_ctrl_close(monitor_conn[index]);
+        monitor_conn[index] = NULL;
+    }
+
+    if (exit_sockets[index][0] >= 0) {
+        close(exit_sockets[index][0]);
+        exit_sockets[index][0] = -1;
+    }
+
+    if (exit_sockets[index][1] >= 0) {
+        close(exit_sockets[index][1]);
+        exit_sockets[index][1] = -1;
+    }
+}
+
+int wifi_get_AP_station_list(char *reply, size_t *reply_len)
+{
+    char addr[32], cmd[64];
+
+    reply[0] = '\0';
+
+    if (wifi_get_AP_station("STA-FIRST", addr, sizeof(addr))){
+       ALOGE("Wifi_Hotspot: wifi_get_AP_station_list: STA_FIRST: No connected Station");
+       return -1;
+    }
+
+    do {
+       strcat(reply, addr);
+       strcat(reply, " ");
+       snprintf(cmd, sizeof(cmd), "STA-NEXT %s", addr);
+    } while ( wifi_get_AP_station(cmd, addr, sizeof(addr)) == 0);
+
+    *reply_len = strlen(reply);
+    reply[*reply_len] = '\0';
+    ALOGV(" Connected stations in Hotspot : %s", reply);
+
+    return 0;
+}
+
+int wifi_get_AP_station(char *cmd, char *addr, size_t addr_len)
+{
+   char  *pos, reply[1024];
+   size_t reply_len;
+   int ret, index = PRIMARY;
+
+    if (ctrl_conn[index] == NULL) {
+        ALOGV("Not connected to hostapd - \"%s\" command dropped.\n", cmd);
+        return -1;
+    }
+
+    reply_len = sizeof(reply) - 1;
+
+    log_cmd(cmd);
+    ret = wpa_ctrl_request(ctrl_conn[index], cmd, strlen(cmd), reply, &reply_len, NULL);
+    if (ret == -2) {
+        ALOGD("'%s' command timed out.\n", cmd);
+        /* unblocks the monitor receive socket for termination */
+        TEMP_FAILURE_RETRY(write(exit_sockets[index][0], "T", 1));
+        return -2;
+    } else if (ret < 0 || strncmp(reply, "FAIL", 4) == 0) {
+        LOGI("REPLY: FAIL\n");
+        return -1;
+    }
+
+    log_reply(reply, &reply_len);
+
+    reply[reply_len] = '\0';
+    ALOGE("%s", reply);
+
+    pos = reply;
+    while (*pos != '\0' && *pos != '\n')
+        pos++;
+    *pos = '\0';
+    strlcpy(addr, reply, addr_len);
+    return 0;
+}
