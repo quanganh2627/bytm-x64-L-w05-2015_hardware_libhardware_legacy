@@ -74,10 +74,6 @@ public:
                                                                           const char *device_address) = 0;
     // indicate a change in phone state. Valid phones states are defined by AudioSystem::audio_mode
     virtual void setPhoneState(int state) = 0;
-
-    // indicate a change in fm radio mode
-    virtual void setFmMode(uint32_t mode) = 0;
-
     // force using a specific device category for the specified usage
     virtual void setForceUse(AudioSystem::force_use usage, AudioSystem::forced_config config) = 0;
     // retrieve current device category forced for a given usage
@@ -165,16 +161,6 @@ public:
 
     //dump state
     virtual status_t    dump(int fd) = 0;
-
-    //Check if offload is possible for given sample rate, bitrate, duration, video file
-    //streaming and audio policy.
-    virtual bool isOffloadSupported(uint32_t format,
-                                    audio_stream_type_t stream,
-                                    uint32_t samplingRate,
-                                    uint32_t bitRate,
-                                    int64_t duration,
-                                    bool isVideo = false,
-                                    bool isStreaming = false) = 0;
 };
 
 
@@ -253,9 +239,6 @@ public:
 
     // set down link audio volume.
     virtual status_t setVoiceVolume(float volume, int delayMs = 0) = 0;
-
-    // set fm rx playback audio volume.
-    virtual status_t setFmRxVolume(float volume, int delayMs = 0) = 0;
 
     // move effect to the specified output
     virtual status_t moveEffects(int session,

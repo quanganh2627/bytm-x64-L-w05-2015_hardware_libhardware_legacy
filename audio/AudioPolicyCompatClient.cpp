@@ -145,9 +145,4 @@ status_t AudioPolicyCompatClient::setVoiceVolume(float volume, int delayMs)
     return mServiceOps->set_voice_volume(mService, volume, delayMs);
 }
 
-status_t AudioPolicyCompatClient::setFmRxVolume(float volume, int delayMs)
-{
-    return mServiceOps->set_fm_rx_volume(mService, volume, delayMs);
-}
-
 }; // namespace android_audio_legacy
