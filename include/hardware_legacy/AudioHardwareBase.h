@@ -42,6 +42,8 @@ public:
      */
     virtual status_t    setMode(int mode);
 
+    virtual status_t    setFmRxMode(int mode);
+
     virtual status_t    setParameters(const String8& keyValuePairs);
     virtual String8     getParameters(const String8& keys);
 
@@ -59,6 +61,8 @@ protected:
     /** returns true if a telephony or VoIP call is in progress */
     virtual bool     isInCall() { return isModeInCall(mMode); };
     int              mMode;
+    int              mFmRxMode;
+    int              mPrevFmRxMode;
 };
 
 }; // namespace android

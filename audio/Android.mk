@@ -76,5 +76,22 @@ include $(BUILD_SHARED_LIBRARY)
 #
 #include $(BUILD_SHARED_LIBRARY)
 
-#    AudioHardwareGeneric.cpp \
-#    AudioHardwareStub.cpp \
+include $(CLEAR_VARS)
+
+LOCAL_SRC_FILES := \
+    AudioHardwareInterface.cpp \
+    audio_hw_hal.cpp \
+    AudioHardwareStub.cpp
+
+
+LOCAL_MODULE := audio.primary.default
+LOCAL_MODULE_PATH := $(TARGET_OUT_SHARED_LIBRARIES)/hw
+LOCAL_MODULE_TAGS := optional
+TARGET_ERROR_FLAGS += -Wno-non-virtual-dtor
+LOCAL_STATIC_LIBRARIES := libmedia_helper
+LOCAL_SHARED_LIBRARIES := \
+    libcutils \
+    libutils \
+    libhardware_legacy
+
+include $(BUILD_SHARED_LIBRARY)

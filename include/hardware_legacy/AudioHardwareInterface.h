@@ -209,6 +209,9 @@ public:
     /** set the audio volume of a voice call. Range is between 0.0 and 1.0 */
     virtual status_t    setVoiceVolume(float volume) = 0;
 
+    /** set the audio volume of fm rx playback. Range is between 0.0 and 1.0 */
+    virtual status_t    setFmRxVolume(float volume) = 0;
+
     /**
      * set the audio volume for all audio activities other than voice call.
      * Range between 0.0 and 1.0. If any value other than NO_ERROR is returned,
@@ -230,6 +233,8 @@ public:
      * when a call is in progress.
      */
     virtual status_t    setMode(int mode) = 0;
+
+    virtual status_t    setFmRxMode(int mode) = 0;
 
     // mic mute
     virtual status_t    setMicMute(bool state) = 0;

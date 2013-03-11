@@ -25,6 +25,8 @@
 #include <utils/SortedVector.h>
 #include <hardware_legacy/AudioPolicyInterface.h>
 
+// Change it according to policy. Currently set to 20 secs
+#define OFFLOAD_MIN_FILE_DURATION 20 //seconds
 
 namespace android_audio_legacy {
     using android::KeyedVector;
@@ -78,6 +80,7 @@ public:
         virtual AudioSystem::device_connection_state getDeviceConnectionState(audio_devices_t device,
                                                                               const char *device_address);
         virtual void setPhoneState(int state);
+        virtual void setFmMode(uint32_t mode);
         virtual void setForceUse(AudioSystem::force_use usage, AudioSystem::forced_config config);
         virtual AudioSystem::forced_config getForceUse(AudioSystem::force_use usage);
         virtual void setSystemProperty(const char* property, const char* value);
@@ -137,6 +140,14 @@ public:
 
         virtual status_t dump(int fd);
 
+        virtual bool isOffloadSupported(uint32_t format,
+                                         audio_stream_type_t stream,
+                                         uint32_t samplingRate,
+                                         uint32_t bitRate,
+                                         int64_t duration,
+                                         bool hasVideo = false,
+                                         bool hasStreaming = false);
+
 protected:
 
         enum routing_strategy {
@@ -144,9 +155,17 @@ protected:
             STRATEGY_PHONE,
             STRATEGY_SONIFICATION,
             STRATEGY_SONIFICATION_RESPECTFUL,
+            STRATEGY_SONIFICATION_LOCAL,
             STRATEGY_DTMF,
             STRATEGY_ENFORCED_AUDIBLE,
+	    STRATEGY_FM_RADIO,
             NUM_STRATEGIES
+        };
+
+        enum fm_mode {
+            MODE_FM_OFF,
+            MODE_FM_ON,
+            MODE_FM_NUM
         };
 
         // 4 points to define the volume attenuation curve, each characterized by the volume
@@ -250,6 +269,7 @@ protected:
             audio_devices_t supportedDevices();
             uint32_t latency();
             bool sharesHwModuleWith(const AudioOutputDescriptor *outputDesc);
+            bool isActive(uint32_t inPastMs) const;
 
             audio_io_handle_t mId;              // output handle
             uint32_t mSamplingRate;             //
@@ -258,6 +278,7 @@ protected:
             uint32_t mLatency;                  //
             audio_output_flags_t mFlags;   //
             audio_devices_t mDevice;                   // current device this output is routed to
+            int mPrevPopCount;
             uint32_t mRefCount[AudioSystem::NUM_STREAM_TYPES]; // number of streams of each type using this output
             nsecs_t mStopTime[AudioSystem::NUM_STREAM_TYPES];
             AudioOutputDescriptor *mOutput1;    // used by duplicated outputs: first output
@@ -267,6 +288,8 @@ protected:
             const IOProfile *mProfile;          // I/O profile this output derives from
             bool mStrategyMutedByDevice[NUM_STRATEGIES]; // strategies muted because of incompatible
                                                 // device selection. See checkDeviceMuteStrategies()
+
+            bool mForceRouting; // Next routing for this output will be forced as current device routed is null
         };
 
         // descriptor for audio inputs. Used to maintain current configuration of each opened audio input
@@ -360,7 +383,7 @@ protected:
         virtual float computeVolume(int stream, int index, audio_io_handle_t output, audio_devices_t device);
 
         // check that volume change is permitted, compute and send new volume to audio hardware
-        status_t checkAndSetVolume(int stream, int index, audio_io_handle_t output, audio_devices_t device, int delayMs = 0, bool force = false);
+        virtual status_t checkAndSetVolume(int stream, int index, audio_io_handle_t output, audio_devices_t device, int delayMs = 0, bool force = false);
 
         // apply all stream volumes to the specified output and device
         void applyStreamVolumes(audio_io_handle_t output, audio_devices_t device, int delayMs = 0, bool force = false);
@@ -388,6 +411,11 @@ protected:
 
         // true if given state represents a device in a telephony or VoIP call
         virtual bool isStateInCall(int state);
+
+        // true if sonification strategy is of type SONIFICATION, SONIFICATION_RESPECTFUL or SONIFICATION_LOCAL
+        static bool isSonificationStrategy(routing_strategy strategy);
+        // true if stream is of type SONIFICATION, SONIFICATION_RESPECTFUL or SONIFICATION_LOCAL
+        static bool isStreamOfTypeSonification(AudioSystem::stream_type stream);
 
         // when a device is connected, checks if an open output can be routed
         // to this device. If none is open, tries to open one of the available outputs.
@@ -472,6 +500,8 @@ protected:
 
         audio_io_handle_t selectOutput(const SortedVector<audio_io_handle_t>& outputs,
                                        AudioSystem::output_flags flags);
+        audio_io_handle_t selectDirectOutput(const SortedVector<audio_io_handle_t>& outputs,
+                                       AudioSystem::output_flags flags);
         IOProfile *getInputProfile(audio_devices_t device,
                                    uint32_t samplingRate,
                                    uint32_t format,
@@ -504,6 +534,7 @@ protected:
 
         AudioPolicyClientInterface *mpClientInterface;  // audio policy client interface
         audio_io_handle_t mPrimaryOutput;              // primary output handle
+        audio_io_handle_t mMusicOffloadOutput;          // Music offload output handler
         // list of descriptors for outputs currently opened
         DefaultKeyedVector<audio_io_handle_t, AudioOutputDescriptor *> mOutputs;
         // copy of mOutputs before setDeviceConnectionState() opens new outputs
@@ -515,6 +546,7 @@ protected:
                                                 // without AUDIO_DEVICE_BIT_IN to allow direct bit
                                                 // field comparisons
         int mPhoneState;                                                    // current phone state
+        uint32_t mFmMode;                                                   // current fm radio mode
         AudioSystem::forced_config mForceUse[AudioSystem::NUM_FORCE_USE];   // current forced use configuration
 
         StreamDescriptor mStreams[AudioSystem::NUM_STREAM_TYPES];           // stream descriptors for volume control
@@ -542,6 +574,8 @@ protected:
                                               // (must be in mAttachedOutputDevices)
 
         Vector <HwModule *> mHwModules;
+
+        static bool mIsDirectOutputActive; //check whether direct thread is active or not
 
 #ifdef AUDIO_POLICY_TEST
         Mutex   mLock;
