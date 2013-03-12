@@ -795,9 +795,11 @@ audio_io_handle_t AudioPolicyManagerBase::getOutput(AudioSystem::stream_type str
 #ifdef BGM_ENABLED
   //The check for flag is added to over come dummy getoutputs with
   // invalid parameters JIC
+  //We check for flags as there can be a possibility of deep buffer
+  // enabled music streams in addition to BGM sink stream
     if ((stream == AudioSystem::MUSIC)
         && (mBGMOutput == 0)
-        && (flags != 0)
+        && ((flags != 0)||(flags == AUDIO_OUTPUT_FLAG_REMOTE_BGM))
         && (mIsBGMEnabled)
         && (device & AUDIO_DEVICE_OUT_REMOTE_BGM_SINK)) {
             mBGMOutput = output;
