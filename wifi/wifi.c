@@ -986,14 +986,14 @@ static int write_to_file(const char *path, const char *data, size_t len)
     assert(path);
     assert(data);
 
-    fd = TEMP_FAILURE_RETRY(open(path, O_WRONLY | O_SYNC));
+    fd = TEMP_FAILURE_RETRY(open(path, O_WRONLY));
     if (fd < 0) {
 	ALOGE("Failed to open %s (%s)",
 	      path, strerror(errno));
 	return -errno;
     }
 
-    if (TEMP_FAILURE_RETRY(write(fd, path, len)) != (int) len) {
+    if (TEMP_FAILURE_RETRY(write(fd, data, len)) != (int) len) {
 	ALOGE("Failed to write %s in %s (%s)",
 	      data, path, strerror(errno));
 	ret = -errno;
@@ -1154,7 +1154,7 @@ int wifi_switch_driver_mode(int mode)
      */
     switch (mode) {
     case WIFI_STA_MODE:
-	snprintf(mode_str, sizeof(mode_str), "%u\n", BIT(0));
+	snprintf(mode_str, sizeof(mode_str), "%u\n", BIT(0) | BIT(2) | BIT(4));
 	break;
     case WIFI_AP_MODE:
 	snprintf(mode_str, sizeof(mode_str), "%u\n", BIT(1));
