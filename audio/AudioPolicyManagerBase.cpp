@@ -47,6 +47,31 @@ bool AudioPolicyManagerBase :: mIsDirectOutputActive;
 // ----------------------------------------------------------------------------
 
 
+#ifdef BGM_ENABLED
+bool AudioPolicyManagerBase::IsBackgroundMusicSupported(AudioSystem::stream_type stream) {
+
+    String8 reply;
+    char* isBGMEnabledValue;
+
+    //check whether BGM state is set only if the BGM device is available
+    if (mAvailableOutputDevices & AUDIO_DEVICE_OUT_REMOTE_BGM_SINK) {
+       reply = mpClientInterface->getParameters(0, String8(AUDIO_PARAMETER_KEY_REMOTE_BGM_STATE));
+       ALOGVV("%s isBGMEnabledValue = %s",__func__,reply.string());
+       isBGMEnabledValue = strpbrk((char *)reply.string(), "=");
+       ++isBGMEnabledValue;
+       mIsBGMEnabled = strcmp(isBGMEnabledValue,"true") ? false : true;
+    }
+
+    //enable BGM only for music streams
+    if ((mIsBGMEnabled) && (stream == AudioSystem::MUSIC)) {
+       return true;
+    }
+    else {
+       return false;
+    }
+}
+#endif //BGM_ENABLED
+
 status_t AudioPolicyManagerBase::setDeviceConnectionState(audio_devices_t device,
                                                   AudioSystem::device_connection_state state,
                                                   const char *device_address)
@@ -820,6 +845,15 @@ status_t AudioPolicyManagerBase::stopOutput(audio_io_handle_t output,
             // update the outputs if stopping one with a stream that can affect notification routing
             handleNotificationRoutingForStream(stream);
         }
+
+#ifdef BGM_ENABLED
+        if (IsBackgroundMusicSupported(stream) && (output == mBGMOutput) &&
+                (outputDesc->mRefCount[stream] == 0)) {
+            mBGMOutput = 0;
+            ALOGD("[BGMUSIC] stopOutput() clear background output refcount = %d",outputDesc->mRefCount[stream]);
+        }
+#endif //BGM_ENABLED
+
         return NO_ERROR;
     } else {
         ALOGW("stopOutput() refcount is already 0 for output %d", output);
@@ -2955,6 +2989,19 @@ status_t AudioPolicyManagerBase::checkAndSetVolume(int stream,
             mLastVoiceVolume = voiceVolume;
         }
     }
+
+#ifdef BGM_ENABLED
+    if (mBGMOutput && IsBackgroundMusicSupported((AudioSystem::stream_type)stream)) {
+       // get the newly forced sink
+         audio_devices_t device2 = getDeviceForStrategy(STRATEGY_BACKGROUND_MUSIC, false /*fromCache*/);
+         float volume = computeVolume(stream, index, device2);
+         ALOGV("[BGMUSIC] compute volume for the forced active sink = %d for device %x",volume, device2);
+         //apply the new volume for the primary output
+         //TODO - needs to be extended for all attached sinks other than primary
+         mpClientInterface->setStreamVolume((AudioSystem::stream_type)stream, volume,
+                                                       mPrimaryOutput, delayMs);
+    }
+#endif //BGM_ENABLED
 
     return NO_ERROR;
 }
