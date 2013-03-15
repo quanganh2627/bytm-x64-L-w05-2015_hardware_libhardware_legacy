@@ -470,25 +470,6 @@ void AudioPolicyManagerBase::setPhoneState(int state)
     }
 }
 
-
-void AudioPolicyManagerBase::setFmMode(uint32_t mode)
-{
-    LOGV("setFmMode() mode %x", mode);
-    mFmMode = mode;
-    AudioOutputDescriptor *outputDesc = mOutputs.valueFor(mPrimaryOutput);
-    if (mFmMode == MODE_FM_ON) {
-        LOGV("FM mode is on, increment FM_RX stream count");
-        outputDesc->changeRefCount(AudioSystem::FM_RX, 1);
-    }
-    else {
-        LOGV("FM mode is off, decrement FM_RX stream count");
-        outputDesc->changeRefCount(AudioSystem::FM_RX, -1);
-    }
-
-    setOutputDevice(mPrimaryOutput, getNewDevice(mPrimaryOutput, true /*fromCache*/), true);
-}
-
-
 void AudioPolicyManagerBase::setForceUse(AudioSystem::force_use usage, AudioSystem::forced_config config)
 {
     ALOGV("setForceUse() usage %d, config %d, mPhoneState %d", usage, config, mPhoneState);
@@ -541,15 +522,9 @@ void AudioPolicyManagerBase::setForceUse(AudioSystem::force_use usage, AudioSyst
             config != AudioSystem::FORCE_SYSTEM_ENFORCED) {
             ALOGW("setForceUse() invalid config %d for FOR_SYSTEM", config);
         }
-    case AudioSystem::FOR_FM_RADIO:
-        if (config != AudioSystem::FORCE_NONE && config != AudioSystem::FORCE_SPEAKER &&
-            config != AudioSystem::FORCE_HEADPHONES && config != AudioSystem::FORCE_WIRED_ACCESSORY) {
-            ALOGW("setForceUse() invalid config %d for FOR_FM_RADIO", config);
-        }
         forceVolumeReeval = true;
         mForceUse[usage] = config;
         break;
-
     default:
         ALOGW("setForceUse() invalid usage %d", usage);
         break;
@@ -599,15 +574,6 @@ void AudioPolicyManagerBase::setSystemProperty(const char* property, const char*
         } else {
             ALOGV("ENFORCED_AUDIBLE can be muted");
             mStreams[AudioSystem::ENFORCED_AUDIBLE].mCanBeMuted = true;
-        }
-    }
-    if (strcmp(property, "ro.fmrx.sound.forced") == 0) {
-        if (atoi(value)) {
-            ALOGV("FM_RX cannot be muted");
-            mStreams[AudioSystem::FM_RX].mCanBeMuted = false;
-        } else {
-            ALOGV("FM_RX can be muted");
-            mStreams[AudioSystem::FM_RX].mCanBeMuted = true;
         }
     }
 }
@@ -1653,7 +1619,6 @@ AudioPolicyManagerBase::AudioPolicyManagerBase(AudioPolicyClientInterface *clien
       mMusicOffloadOutput(false),
       mAvailableOutputDevices(AUDIO_DEVICE_NONE),
       mPhoneState(AudioSystem::MODE_NORMAL),
-      mFmMode(0),
       mLimitRingtoneVolume(false),
       mLastVoiceVolume(-1.0f),
       mTotalEffectsCpuLoad(0),
@@ -2259,7 +2224,7 @@ void AudioPolicyManagerBase::checkOutputForStrategy(routing_strategy strategy)
         }
 
         // Move effects associated to this strategy from previous output to new output
-        if ((strategy == STRATEGY_MEDIA) || (strategy == STRATEGY_FM_RADIO)) {
+        if (strategy == STRATEGY_MEDIA) {
             int outIdx = 0;
             for (size_t i = 0; i < dstOutputs.size(); i++) {
                 AudioOutputDescriptor *desc = mOutputs.valueFor(dstOutputs[i]);
@@ -2302,7 +2267,6 @@ void AudioPolicyManagerBase::checkOutputForAllStrategies()
     checkOutputForStrategy(STRATEGY_SONIFICATION_RESPECTFUL);
     checkOutputForStrategy(STRATEGY_SONIFICATION_LOCAL);
     checkOutputForStrategy(STRATEGY_MEDIA);
-    checkOutputForStrategy(STRATEGY_FM_RADIO);
     checkOutputForStrategy(STRATEGY_DTMF);
 }
 
@@ -2384,7 +2348,7 @@ audio_devices_t AudioPolicyManagerBase::getNewDevice(audio_io_handle_t output, b
     // 5: the strategy "respectful" sonification is active on the output:
     //      use device for strategy "respectful" sonification
     // 6: the strategy media is active on the output:
-    //      use device for strategy media or fm radio is on
+    //      use device for strategy media
     // 7: the strategy DTMF is active on the output:
     //      use device for strategy DTMF
     if (outputDesc->isUsedByStrategy(STRATEGY_ENFORCED_AUDIBLE)) {
@@ -2402,8 +2366,6 @@ audio_devices_t AudioPolicyManagerBase::getNewDevice(audio_io_handle_t output, b
         device = getDeviceForStrategy(STRATEGY_MEDIA, fromCache);
     } else if (outputDesc->isUsedByStrategy(STRATEGY_DTMF)) {
         device = getDeviceForStrategy(STRATEGY_DTMF, fromCache);
-    } else if (outputDesc->isUsedByStrategy(STRATEGY_FM_RADIO)) {
-        device = getDeviceForStrategy(STRATEGY_FM_RADIO, fromCache);
     }
 
     ALOGV("getNewDevice() selected device %x", device);
@@ -2466,8 +2428,6 @@ AudioPolicyManagerBase::routing_strategy AudioPolicyManagerBase::getStrategy(
         return STRATEGY_MEDIA;
     case AudioSystem::ENFORCED_AUDIBLE:
         return STRATEGY_ENFORCED_AUDIBLE;
-    case AudioSystem::FM_RX:
-        return STRATEGY_FM_RADIO;
     }
 }
 
@@ -2514,12 +2474,6 @@ audio_devices_t AudioPolicyManagerBase::getDeviceForStrategy(routing_strategy st
 
     case STRATEGY_DTMF:
         if (!isInCall()) {
-            // If FM is on, follow the FM_RADIO strategy policy
-            if (mFmMode == MODE_FM_ON) {
-                device = getDeviceForStrategy(STRATEGY_FM_RADIO, false /*fromCache*/);
-                break;
-            }
-
             // when off call, DTMF strategy follows the same rules as MEDIA strategy
             device = getDeviceForStrategy(STRATEGY_MEDIA, false /*fromCache*/);
             break;
@@ -2642,9 +2596,6 @@ audio_devices_t AudioPolicyManagerBase::getDeviceForStrategy(routing_strategy st
 
         uint32_t device2 = 0;
 
-        if (mFmMode == MODE_FM_ON) {
-            device2 = getDeviceForStrategy(STRATEGY_FM_RADIO, false /*fromCache*/);
-        }
 #ifdef BGM_ENABLED
         //If BGM devices are present, always force the output to it
         // - other attached sinks will be handled in STRATEGY_BACKGROUND_MUSIC
@@ -2706,31 +2657,6 @@ audio_devices_t AudioPolicyManagerBase::getDeviceForStrategy(routing_strategy st
             ALOGE("getDeviceForStrategy() no device found for STRATEGY_MEDIA");
         }
         } break;
-
-
-    case STRATEGY_FM_RADIO: {
-
-        uint32_t device2 = 0;
-
-        if(mForceUse[AudioSystem::FOR_FM_RADIO] == AudioSystem::FORCE_SPEAKER) {
-            LOGV("getDeviceForStrategy():Force use of SPEAKER for STRATEGY_FM_RADIO.");
-            device2 = mAvailableOutputDevices & AudioSystem::DEVICE_OUT_SPEAKER;
-        }
-        if (device2 == 0) {
-            device2 = mAvailableOutputDevices & AudioSystem::DEVICE_OUT_WIRED_HEADPHONE;
-        }
-        if (device2 == 0) {
-            device2 = mAvailableOutputDevices & AudioSystem::DEVICE_OUT_WIRED_HEADSET;
-        }
-
-        device |= device2;
-        if (device) break;
-        device = mDefaultOutputDevice;
-        if (device == 0) {
-            ALOGE("getDeviceForStrategy() no device found for STRATEGY_FM_RADIO");
-        }
-        }
-        break;
 
     case STRATEGY_BACKGROUND_MUSIC: {
 
@@ -2922,8 +2848,8 @@ uint32_t AudioPolicyManagerBase::setOutputDevice(audio_io_handle_t output,
         mpClientInterface->setParameters(output, param.toString(), delayMs);
     }
 
-    // update stream volumes according to new device, force the reevaluation in case of FM
-    applyStreamVolumes(output, device, delayMs);//, mFmMode == MODE_FM_ON);
+    // update stream volumes according to new device
+    applyStreamVolumes(output, device, delayMs);
 
     return muteWaitMs;
 }
@@ -2998,14 +2924,9 @@ audio_devices_t AudioPolicyManagerBase::getDeviceForInputSource(int inputSource)
             device = AUDIO_DEVICE_IN_VOICE_CALL;
         }
         break;
-   case AUDIO_SOURCE_REMOTE_SUBMIX:
+    case AUDIO_SOURCE_REMOTE_SUBMIX:
         if (mAvailableInputDevices & AUDIO_DEVICE_IN_REMOTE_SUBMIX) {
             device = AUDIO_DEVICE_IN_REMOTE_SUBMIX;
-        }
-        break; 
-    case AUDIO_SOURCE_FM:
-        if (mAvailableInputDevices & AudioSystem::DEVICE_IN_FM_RECORD) {
-            device = AudioSystem::DEVICE_IN_FM_RECORD;
         }
         break;
     default:
@@ -3233,11 +3154,6 @@ const AudioPolicyManagerBase::VolumeCurvePoint
         sSpeakerMediaVolumeCurve, // DEVICE_CATEGORY_SPEAKER
         sDefaultMediaVolumeCurve  // DEVICE_CATEGORY_EARPIECE
     },
-    { // AUDIO_STREAM_FM_RX
-        sDefaultMediaVolumeCurve, // DEVICE_CATEGORY_HEADSET
-        sSpeakerMediaVolumeCurve, // DEVICE_CATEGORY_SPEAKER
-        sDefaultMediaVolumeCurve  // DEVICE_CATEGORY_EARPIECE
-    },
 };
 
 void AudioPolicyManagerBase::initializeVolumeCurves()
@@ -3360,12 +3276,6 @@ status_t AudioPolicyManagerBase::checkAndSetVolume(int stream,
         if (stream == AudioSystem::BLUETOOTH_SCO) {
             mpClientInterface->setStreamVolume(AudioSystem::VOICE_CALL, volume, output, delayMs);
         }
-
-        // Update FM Rx volume
-        if (stream == AudioSystem::FM_RX) {
-            return mpClientInterface->setFmRxVolume(volume, delayMs);
-        }
-
         mpClientInterface->setStreamVolume((AudioSystem::stream_type)stream, volume, output, delayMs);
     }
 
@@ -3982,7 +3892,6 @@ const struct StringToEnum sDeviceNameToEnumTable[] = {
     STRING_TO_ENUM(AUDIO_DEVICE_IN_ANLG_DOCK_HEADSET),
     STRING_TO_ENUM(AUDIO_DEVICE_IN_DGTL_DOCK_HEADSET),
     STRING_TO_ENUM(AUDIO_DEVICE_IN_USB_ACCESSORY),
-    STRING_TO_ENUM(AUDIO_DEVICE_IN_FM_RECORD),
 };
 
 const struct StringToEnum sFlagNameToEnumTable[] = {

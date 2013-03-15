@@ -80,7 +80,6 @@ public:
         virtual AudioSystem::device_connection_state getDeviceConnectionState(audio_devices_t device,
                                                                               const char *device_address);
         virtual void setPhoneState(int state);
-        virtual void setFmMode(uint32_t mode);
         virtual void setForceUse(AudioSystem::force_use usage, AudioSystem::forced_config config);
         virtual AudioSystem::forced_config getForceUse(AudioSystem::force_use usage);
         virtual void setSystemProperty(const char* property, const char* value);
@@ -158,15 +157,8 @@ protected:
             STRATEGY_SONIFICATION_LOCAL,
             STRATEGY_DTMF,
             STRATEGY_ENFORCED_AUDIBLE,
-	    STRATEGY_FM_RADIO,
             STRATEGY_BACKGROUND_MUSIC,
             NUM_STRATEGIES
-        };
-
-        enum fm_mode {
-            MODE_FM_OFF,
-            MODE_FM_ON,
-            MODE_FM_NUM
         };
 
         // 4 points to define the volume attenuation curve, each characterized by the volume
@@ -386,7 +378,7 @@ protected:
         float getVolume(int stream, audio_devices_t device);
 
         // check that volume change is permitted, compute and send new volume to audio hardware
-        virtual status_t checkAndSetVolume(int stream, int index, audio_io_handle_t output, audio_devices_t device, int delayMs = 0, bool force = false);
+        status_t checkAndSetVolume(int stream, int index, audio_io_handle_t output, audio_devices_t device, int delayMs = 0, bool force = false);
 
         // apply all stream volumes to the specified output and device
         void applyStreamVolumes(audio_io_handle_t output, audio_devices_t device, int delayMs = 0, bool force = false);
@@ -561,7 +553,6 @@ protected:
                                                 // without AUDIO_DEVICE_BIT_IN to allow direct bit
                                                 // field comparisons
         int mPhoneState;                                                    // current phone state
-        uint32_t mFmMode;                                                   // current fm radio mode
         AudioSystem::forced_config mForceUse[AudioSystem::NUM_FORCE_USE];   // current forced use configuration
 
         StreamDescriptor mStreams[AudioSystem::NUM_STREAM_TYPES];           // stream descriptors for volume control

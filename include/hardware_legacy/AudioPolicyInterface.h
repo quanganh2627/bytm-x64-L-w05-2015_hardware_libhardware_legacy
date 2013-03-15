@@ -74,10 +74,6 @@ public:
                                                                           const char *device_address) = 0;
     // indicate a change in phone state. Valid phones states are defined by AudioSystem::audio_mode
     virtual void setPhoneState(int state) = 0;
-
-    // indicate a change in fm radio mode
-    virtual void setFmMode(uint32_t mode) = 0;
-
     // force using a specific device category for the specified usage
     virtual void setForceUse(AudioSystem::force_use usage, AudioSystem::forced_config config) = 0;
     // retrieve current device category forced for a given usage
@@ -253,9 +249,6 @@ public:
 
     // set down link audio volume.
     virtual status_t setVoiceVolume(float volume, int delayMs = 0) = 0;
-
-    // set fm rx playback audio volume.
-    virtual status_t setFmRxVolume(float volume, int delayMs = 0) = 0;
 
     // move effect to the specified output
     virtual status_t moveEffects(int session,
