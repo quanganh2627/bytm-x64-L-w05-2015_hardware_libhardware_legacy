@@ -941,7 +941,7 @@ const char *wifi_get_fw_path(int fw_type)
 
     switch (fw_type) {
     case WIFI_GET_FW_PATH_STA:
-	if (!property_get(BCM_PROP_CHIP, bcm_prop_chip, NULL)) {
+	if (property_get(BCM_PROP_CHIP, bcm_prop_chip, NULL)) {
 	    if (strstr(bcm_prop_chip, "43241"))
 		return WIFI_DRIVER_43241_FW_PATH_STA;
 	    else if (strstr(bcm_prop_chip, "4334"))
@@ -952,7 +952,7 @@ const char *wifi_get_fw_path(int fw_type)
 	else
 	    return WIFI_DRIVER_FW_PATH_STA;
     case WIFI_GET_FW_PATH_AP:
-	if (!property_get(BCM_PROP_CHIP, bcm_prop_chip, NULL)) {
+	if (property_get(BCM_PROP_CHIP, bcm_prop_chip, NULL)) {
 	    if (strstr(bcm_prop_chip, "43241"))
 		return WIFI_DRIVER_43241_FW_PATH_AP;
 	    else if (strstr(bcm_prop_chip, "4334"))
@@ -963,7 +963,7 @@ const char *wifi_get_fw_path(int fw_type)
 	else
 	    return WIFI_DRIVER_FW_PATH_AP;
     case WIFI_GET_FW_PATH_P2P:
-	if (!property_get(BCM_PROP_CHIP, bcm_prop_chip, NULL)) {
+	if (property_get(BCM_PROP_CHIP, bcm_prop_chip, NULL)) {
 	    if (strstr(bcm_prop_chip, "43241"))
 		return WIFI_DRIVER_43241_FW_PATH_P2P;
 	    else if (strstr(bcm_prop_chip, "4334"))
