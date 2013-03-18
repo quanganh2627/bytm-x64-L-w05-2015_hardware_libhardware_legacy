@@ -159,6 +159,7 @@ protected:
             STRATEGY_DTMF,
             STRATEGY_ENFORCED_AUDIBLE,
 	    STRATEGY_FM_RADIO,
+            STRATEGY_BACKGROUND_MUSIC,
             NUM_STRATEGIES
         };
 
@@ -316,7 +317,7 @@ protected:
         public:
             StreamDescriptor();
 
-            int getVolumeIndex(audio_devices_t device);
+            int getVolumeIndex(audio_devices_t device) const;
             void dump(int fd);
 
             int mIndexMin;      // min volume index
@@ -380,7 +381,10 @@ protected:
 
         // compute the actual volume for a given stream according to the requested index and a particular
         // device
-        virtual float computeVolume(int stream, int index, audio_io_handle_t output, audio_devices_t device);
+        virtual float computeVolume(int stream, int index, audio_devices_t device);
+
+        // Returns the stream volume
+        float getVolume(int stream, audio_devices_t device);
 
         // check that volume change is permitted, compute and send new volume to audio hardware
         virtual status_t checkAndSetVolume(int stream, int index, audio_io_handle_t output, audio_devices_t device, int delayMs = 0, bool force = false);
@@ -407,10 +411,10 @@ protected:
         void handleIncallSonification(int stream, bool starting, bool stateChange);
 
         // true if device is in a telephony or VoIP call
-        virtual bool isInCall();
+        virtual bool isInCall() const;
 
         // true if given state represents a device in a telephony or VoIP call
-        virtual bool isStateInCall(int state);
+        static bool isStateInCall(int state);
 
         // true if sonification strategy is of type SONIFICATION, SONIFICATION_RESPECTFUL or SONIFICATION_LOCAL
         static bool isSonificationStrategy(routing_strategy strategy);
@@ -443,7 +447,7 @@ protected:
         void checkA2dpSuspend();
 
         // returns the A2DP output handle if it is open or 0 otherwise
-        audio_io_handle_t getA2dpOutput();
+        audio_io_handle_t getA2dpOutput() const;
 
         // selects the most appropriate device on output for current state
         // must be called every time a condition that affects the device choice for a given output is
@@ -476,6 +480,9 @@ protected:
                     void        exit();
         int testOutputIndex(audio_io_handle_t output);
 #endif //AUDIO_POLICY_TEST
+#ifdef BGM_ENABLED
+        bool IsBackgroundMusicSupported(AudioSystem::stream_type stream);
+#endif
 
         status_t setEffectEnabled(EffectDescriptor *pDesc, bool enabled);
 
@@ -519,17 +526,26 @@ protected:
                                      const char *name);
         static audio_output_flags_t parseFlagNames(char *name);
         static audio_devices_t parseDeviceNames(char *name);
+
         void loadSamplingRates(char *name, IOProfile *profile);
         void loadFormats(char *name, IOProfile *profile);
         void loadOutChannels(char *name, IOProfile *profile);
         void loadInChannels(char *name, IOProfile *profile);
-        status_t loadOutput(cnode *root,  HwModule *module);
-        status_t loadInput(cnode *root,  HwModule *module);
+        status_t loadOutput(const cnode *root,  HwModule *module);
+        status_t loadInput(const cnode *root,  HwModule *module);
         void loadHwModule(cnode *root);
         void loadHwModules(cnode *root);
+        void loadCustomProperties(const cnode *root);
         void loadGlobalConfig(cnode *root);
         status_t loadAudioPolicyConfig(const char *path);
         void defaultAudioPolicyConfig(void);
+        // Custom properties accessors
+        // if the accessor fails, the value parameter is unchanged
+        bool getCustomPropertyAsString(const String8 &name, String8 &value) const;
+        bool getCustomPropertyAsLong(const String8 &name, long &value) const;
+        bool getCustomPropertyAsULong(const String8 &name, unsigned long &value) const;
+        bool getCustomPropertyAsFloat(const String8 &name, float &value) const;
+        bool getCustomPropertyAsBool(const String8 &name, bool &value) const;
 
 
         AudioPolicyClientInterface *mpClientInterface;  // audio policy client interface
@@ -592,6 +608,12 @@ protected:
         uint32_t        mTestLatencyMs;
 #endif //AUDIO_POLICY_TEST
 
+#ifdef BGM_ENABLED
+        /*flag to keep track of background music*/
+        bool     mIsBGMEnabled;
+        audio_io_handle_t mBGMOutput;
+#endif /*BGM_ENABLED*/
+
 private:
         static float volIndexToAmpl(audio_devices_t device, const StreamDescriptor& streamDesc,
                 int indexInUi);
@@ -599,6 +621,9 @@ private:
         //    routing of notifications
         void handleNotificationRoutingForStream(AudioSystem::stream_type stream);
         static bool isVirtualInputDevice(audio_devices_t device);
+
+        // Custom properties map
+        DefaultKeyedVector<String8, String8> mCustomPropertiesMap;
 };
 
 };

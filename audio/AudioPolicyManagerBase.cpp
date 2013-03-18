@@ -46,6 +46,31 @@ bool AudioPolicyManagerBase :: mIsDirectOutputActive;
 // ----------------------------------------------------------------------------
 
 
+#ifdef BGM_ENABLED
+bool AudioPolicyManagerBase::IsBackgroundMusicSupported(AudioSystem::stream_type stream) {
+
+    String8 reply;
+    char* isBGMEnabledValue;
+
+    //check whether BGM state is set only if the BGM device is available
+    if (mAvailableOutputDevices & AUDIO_DEVICE_OUT_REMOTE_BGM_SINK) {
+       reply = mpClientInterface->getParameters(0, String8(AUDIO_PARAMETER_KEY_REMOTE_BGM_STATE));
+       ALOGV("%s isBGMEnabledValue = %s",__func__,reply.string());
+       isBGMEnabledValue = strpbrk((char *)reply.string(), "=");
+       ++isBGMEnabledValue;
+       mIsBGMEnabled = strcmp(isBGMEnabledValue,"true") ? false : true;
+    }
+
+    //enable BGM only for music streams
+    if ((mIsBGMEnabled) && (stream == AudioSystem::MUSIC)) {
+       return true;
+    }
+    else {
+       return false;
+    }
+}
+#endif //BGM_ENABLED
+
 status_t AudioPolicyManagerBase::setDeviceConnectionState(audio_devices_t device,
                                                   AudioSystem::device_connection_state state,
                                                   const char *device_address)
@@ -107,6 +132,17 @@ status_t AudioPolicyManagerBase::setDeviceConnectionState(audio_devices_t device
             // register new device as available
             mAvailableOutputDevices = (audio_devices_t)(mAvailableOutputDevices | device);
 
+#ifdef BGM_ENABLED
+            //Check whether the new device supports background music or not
+            if (device & AUDIO_DEVICE_OUT_REMOTE_BGM_SINK) {
+                if (IsBackgroundMusicSupported(AudioSystem::MUSIC)) {
+                    ALOGV("[BGMUSIC] Enabling remote background music support");
+                }
+                mBGMOutput = 0;
+                ALOGV("[BGMUSIC] setDeviceConnectionState() mIsBGMEnabled = %d", mIsBGMEnabled);
+            }
+#endif //BGM_ENABLED
+
             if (!outputs.isEmpty()) {
                 String8 paramStr;
                 if (mHasA2dp && audio_is_a2dp_device(device)) {
@@ -141,6 +177,18 @@ status_t AudioPolicyManagerBase::setDeviceConnectionState(audio_devices_t device
             }
 
             ALOGV("setDeviceConnectionState() disconnecting device %x", device);
+
+#ifdef BGM_ENABLED
+        //disable the background music if the devices supporting BGM becomes unavailable
+            if (device & AUDIO_DEVICE_OUT_REMOTE_BGM_SINK) {
+                if (IsBackgroundMusicSupported(AudioSystem::MUSIC)) {
+                  ALOGV("[BGMUSIC] Enabling remote background music support");
+                }
+                mBGMOutput = 0;
+                ALOGD("[BGMUSIC] Disable background music support mIsBGMEnabled = %d", mIsBGMEnabled);
+            }
+#endif //BGM_ENABLED
+
             // remove device from available output devices
             mAvailableOutputDevices = (audio_devices_t)(mAvailableOutputDevices & ~device);
 
@@ -380,8 +428,9 @@ void AudioPolicyManagerBase::setPhoneState(int state)
         for (size_t i = 0; i < mOutputs.size(); i++) {
             AudioOutputDescriptor *desc = mOutputs.valueAt(i);
             //take the biggest latency for all outputs
-            if (delayMs < (int)desc->mLatency*2) {
-                delayMs = desc->mLatency*2;
+            uint32_t biggestLatency = desc->mLatency*2;
+            if (delayMs < biggestLatency) {
+                delayMs = biggestLatency;
             }
             //mute STRATEGY_MEDIA on all outputs
             if (desc->strategyRefCount(STRATEGY_MEDIA) != 0) {
@@ -613,9 +662,27 @@ audio_io_handle_t AudioPolicyManagerBase::getOutput(AudioSystem::stream_type str
     audio_io_handle_t output = 0;
     uint32_t latency = 0;
     routing_strategy strategy = getStrategy((AudioSystem::stream_type)stream);
+
+#ifdef BGM_ENABLED
+    //There can be scenarios where the user selects/deselects bgm support
+    //  hence check for the support before opening any output
+    if (IsBackgroundMusicSupported(stream)) {
+       ALOGV("[BGMUSIC] Enabling remote background music support");
+    }
+#endif //BGM_ENABLED
+
     audio_devices_t device = getDeviceForStrategy(strategy, false /*fromCache*/);
+
     ALOGV("getOutput() stream %d, samplingRate %d, format %d, channelMask %x, flags %x",
           stream, samplingRate, format, channelMask, flags);
+
+#ifdef BGM_ENABLED
+    //BGMUSIC support - if more than one instance requests
+    // the same device, force different sink for other instances.
+    if (IsBackgroundMusicSupported(stream) && (mBGMOutput)) {
+         device = getDeviceForStrategy(STRATEGY_BACKGROUND_MUSIC, false /*fromCache*/);
+    }
+#endif //BGM_ENABLED
 
 #ifdef AUDIO_POLICY_TEST
     if (mCurOutput != 0) {
@@ -675,7 +742,7 @@ audio_io_handle_t AudioPolicyManagerBase::getOutput(AudioSystem::stream_type str
         outputDesc->mFormat = (audio_format_t)format;
         outputDesc->mChannelMask = (audio_channel_mask_t)channelMask;
         outputDesc->mLatency = 0;
-        outputDesc->mFlags = (audio_output_flags_t)(flags | AUDIO_OUTPUT_FLAG_DIRECT);;
+        outputDesc->mFlags = (audio_output_flags_t)(flags | AUDIO_OUTPUT_FLAG_DIRECT);
         outputDesc->mRefCount[stream] = 0;
         outputDesc->mStopTime[stream] = 0;
         output = mpClientInterface->openOutput(profile->mModule->mHandle,
@@ -715,6 +782,7 @@ audio_io_handle_t AudioPolicyManagerBase::getOutput(AudioSystem::stream_type str
 
     // get which output is suitable for the specified stream. The actual routing change will happen
     // when startOutput() will be called
+
     SortedVector<audio_io_handle_t> outputs = getOutputsForDevice(device, mOutputs);
 
     output = selectOutput(outputs, flags);
@@ -723,6 +791,18 @@ audio_io_handle_t AudioPolicyManagerBase::getOutput(AudioSystem::stream_type str
             "format %d, channels %x, flags %x", stream, samplingRate, format, channelMask, flags);
 
     ALOGV("getOutput() returns output %d", output);
+
+#ifdef BGM_ENABLED
+  //The check for flag is added to over come dummy getoutputs with
+  // invalid parameters JIC
+    if ((stream == AudioSystem::MUSIC)
+        && (mBGMOutput == 0)
+        && (flags != 0)
+        && (mIsBGMEnabled)
+        && (device & AUDIO_DEVICE_OUT_REMOTE_BGM_SINK)) {
+            mBGMOutput = output;
+    }
+#endif
 
     return output;
 }
@@ -953,6 +1033,14 @@ status_t AudioPolicyManagerBase::stopOutput(audio_io_handle_t output,
             // update the outputs if stopping one with a stream that can affect notification routing
             handleNotificationRoutingForStream(stream);
         }
+
+#ifdef BGM_ENABLED
+        if (IsBackgroundMusicSupported(stream) && (output == mBGMOutput)) {
+            mBGMOutput = 0;
+            ALOGD("[BGMUSIC] stopOutput() clear background output");
+        }
+#endif //BGM_ENABLED
+
         return NO_ERROR;
     } else {
         ALOGW("stopOutput() refcount is already 0 for output %d", output);
@@ -1570,6 +1658,11 @@ AudioPolicyManagerBase::AudioPolicyManagerBase(AudioPolicyClientInterface *clien
       mA2dpSuspended(false),
       mHasA2dp(false),
       mHasUsb(false)
+#ifdef BGM_ENABLED
+      ,
+      mIsBGMEnabled(false),
+      mBGMOutput(0)
+#endif //BGM_ENABLED
 {
     mpClientInterface = clientInterface;
 
@@ -2093,13 +2186,21 @@ void AudioPolicyManagerBase::closeOutput(audio_io_handle_t output)
     }
 
     mIsDirectOutputActive =  false;
-    ALOGV("closeOtput: mIsDirectOutputActive = %d",mIsDirectOutputActive);
+    ALOGV("closeOutput: mIsDirectOutputActive = %d",mIsDirectOutputActive);
 
     AudioParameter param;
     param.add(String8("closing"), String8("true"));
     mpClientInterface->setParameters(output, param.toString());
 
     mpClientInterface->closeOutput(output);
+
+#ifdef BGM_ENABLED
+    if ((mIsBGMEnabled) && (output == mBGMOutput)) {
+         mBGMOutput = 0;
+         ALOGD("[BGMUSIC] closeOutput() clear background output");
+    }
+#endif //BGM_ENABLED
+
     delete mOutputs.valueFor(output);
     mOutputs.removeItem(output);
 }
@@ -2202,7 +2303,7 @@ void AudioPolicyManagerBase::checkOutputForAllStrategies()
     checkOutputForStrategy(STRATEGY_DTMF);
 }
 
-audio_io_handle_t AudioPolicyManagerBase::getA2dpOutput()
+audio_io_handle_t AudioPolicyManagerBase::getA2dpOutput() const
 {
     if (!mHasA2dp) {
         return 0;
@@ -2541,6 +2642,17 @@ audio_devices_t AudioPolicyManagerBase::getDeviceForStrategy(routing_strategy st
         if (mFmMode == MODE_FM_ON) {
             device2 = getDeviceForStrategy(STRATEGY_FM_RADIO, false /*fromCache*/);
         }
+#ifdef BGM_ENABLED
+        //If BGM devices are present, always force the output to it
+        // - other attached sinks will be handled in STRATEGY_BACKGROUND_MUSIC
+        if (mIsBGMEnabled) {
+           if (device2 == AUDIO_DEVICE_NONE)
+               device2 = mAvailableOutputDevices &  AudioSystem::DEVICE_OUT_AUX_DIGITAL;
+           if (device2 == AUDIO_DEVICE_NONE)
+               device2 = mAvailableOutputDevices & AudioSystem::DEVICE_OUT_WIDI;
+           ALOGV("[BGMUSIC] STRATEGY_MEDIA - force aux/widi always device = %x",device2);
+        }
+#endif//BGM_ENABLED
 
         if (mHasA2dp && (mForceUse[AudioSystem::FOR_MEDIA] != AudioSystem::FORCE_NO_BT_A2DP) &&
             (getA2dpOutput() != 0) && !mA2dpSuspended) {
@@ -2617,6 +2729,31 @@ audio_devices_t AudioPolicyManagerBase::getDeviceForStrategy(routing_strategy st
         }
         break;
 
+    case STRATEGY_BACKGROUND_MUSIC: {
+
+#ifdef BGM_ENABLED
+        uint32_t device2 = 0;
+
+        ALOGV("[BGMUSIC] STRATEGY_BACKGROUND_MUSIC");
+
+        device2 = mAvailableOutputDevices & AudioSystem::DEVICE_OUT_WIRED_HEADPHONE;
+
+        if (device2 == 0) {
+            device2 = mAvailableOutputDevices & AudioSystem::DEVICE_OUT_WIRED_HEADSET;
+        }
+        if (device2 == 0) {
+            device2 = mAvailableOutputDevices & AudioSystem::DEVICE_OUT_SPEAKER;
+        }
+
+        device |= device2;
+        if (device) break;
+        device = mDefaultOutputDevice;
+        if (device == 0) {
+            ALOGE("[BGMUSIC] getDeviceForStrategy() no device found for STRATEGY_BACKGROUND_MUSIC");
+        }
+#endif //BGM_ENABLED
+        } //STRATEGY_BACKGROUND_MUSIC
+        break;
     default:
         ALOGW("getDeviceForStrategy() unknown strategy: %d", strategy);
         break;
@@ -2733,6 +2870,15 @@ uint32_t AudioPolicyManagerBase::setOutputDevice(audio_io_handle_t output,
     // filter devices according to output selected
     device = (audio_devices_t)(device & outputDesc->mProfile->mSupportedDevices);
 
+#ifdef BGM_ENABLED
+     // force the routing if BGM state is on
+    if ((mIsBGMEnabled) && (output != mBGMOutput) &&
+        !(device & AUDIO_DEVICE_OUT_REMOTE_BGM_SINK)) {
+          device = getDeviceForStrategy(STRATEGY_BACKGROUND_MUSIC, false /*fromCache*/);
+          ALOGD("[BGMUSIC] BGM is ON, return new device for music =  %x",device);
+    }
+#endif //BGM_ENABLED
+
     audio_devices_t prevDevice = outputDesc->mDevice;
 
     ALOGV("setOutputDevice() prevDevice %04x", prevDevice);
@@ -2776,6 +2922,7 @@ uint32_t AudioPolicyManagerBase::setOutputDevice(audio_io_handle_t output,
     if (outputDesc->mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) {
         mpClientInterface->setParameters(mPrimaryOutput, param.toString(), delayMs);
     } else {
+        param.addInt(String8(AudioParameter::keyStreamFlags), (int)outputDesc->mFlags);
         mpClientInterface->setParameters(output, param.toString(), delayMs);
     }
 
@@ -3109,16 +3256,12 @@ void AudioPolicyManagerBase::initializeVolumeCurves()
 
 float AudioPolicyManagerBase::computeVolume(int stream,
                                             int index,
-                                            audio_io_handle_t output,
                                             audio_devices_t device)
 {
-    float volume = 1.0;
-    AudioOutputDescriptor *outputDesc = mOutputs.valueFor(output);
-    StreamDescriptor &streamDesc = mStreams[stream];
+    LOG_ALWAYS_FATAL_IF(device == AUDIO_DEVICE_NONE);
 
-    if (device == AUDIO_DEVICE_NONE) {
-        device = outputDesc->device();
-    }
+    float volume = 1.0;
+    const StreamDescriptor &streamDesc = mStreams[stream];
 
     // if volume is not 0 (not muted), force media volume to max on digital output
     if (stream == AudioSystem::MUSIC &&
@@ -3165,10 +3308,7 @@ float AudioPolicyManagerBase::computeVolume(int stream,
         if (isStreamActive(AudioSystem::MUSIC, SONIFICATION_HEADSET_MUSIC_DELAY) ||
                 mLimitRingtoneVolume) {
             audio_devices_t musicDevice = getDeviceForStrategy(STRATEGY_MEDIA, true /*fromCache*/);
-            float musicVol = computeVolume(AudioSystem::MUSIC,
-                               mStreams[AudioSystem::MUSIC].getVolumeIndex(musicDevice),
-                               output,
-                               musicDevice);
+            float musicVol = getVolume(AudioSystem::MUSIC, musicDevice);
             float minVol = (musicVol > SONIFICATION_HEADSET_VOLUME_MIN) ?
                                 musicVol : SONIFICATION_HEADSET_VOLUME_MIN;
             if (volume > minVol) {
@@ -3179,6 +3319,12 @@ float AudioPolicyManagerBase::computeVolume(int stream,
     }
 
     return volume;
+}
+
+// Returns the stream volume
+float AudioPolicyManagerBase::getVolume(int stream, audio_devices_t device)
+{
+    return computeVolume(stream, mStreams[stream].getVolumeIndex(device), device);
 }
 
 status_t AudioPolicyManagerBase::checkAndSetVolume(int stream,
@@ -3204,7 +3350,8 @@ status_t AudioPolicyManagerBase::checkAndSetVolume(int stream,
         return INVALID_OPERATION;
     }
 
-    float volume = computeVolume(stream, index, output, device);
+    audio_devices_t checkedDevice = (device == AUDIO_DEVICE_NONE) ? mOutputs.valueFor(output)->device() : device;
+    float volume = computeVolume(stream, index, checkedDevice);
     // We actually change the volume if:
     // - the float value returned by computeVolume() changed
     // - the force flag is set
@@ -3241,6 +3388,19 @@ status_t AudioPolicyManagerBase::checkAndSetVolume(int stream,
             mLastVoiceVolume = voiceVolume;
         }
     }
+
+#ifdef BGM_ENABLED
+    if (mBGMOutput && IsBackgroundMusicSupported((AudioSystem::stream_type)stream)) {
+       // get the newly forced sink
+         audio_devices_t device2 = getDeviceForStrategy(STRATEGY_BACKGROUND_MUSIC, false /*fromCache*/);
+         float volume = computeVolume(stream, index, output, device2);
+         ALOGV("[BGMUSIC] compute volume for the forced active sink = %d for device %x",volume, device2);
+         //apply the new volume for the primary output
+         //TODO - needs to be extended for all attached sinks other than primary
+         mpClientInterface->setStreamVolume((AudioSystem::stream_type)stream, volume,
+                                                       mPrimaryOutput, delayMs);
+    }
+#endif //BGM_ENABLED
 
     return NO_ERROR;
 }
@@ -3358,7 +3518,7 @@ void AudioPolicyManagerBase::handleIncallSonification(int stream, bool starting,
     }
 }
 
-bool AudioPolicyManagerBase::isInCall()
+bool AudioPolicyManagerBase::isInCall() const
 {
     return isStateInCall(mPhoneState);
 }
@@ -3591,7 +3751,7 @@ AudioPolicyManagerBase::StreamDescriptor::StreamDescriptor()
     mIndexCur.add(AUDIO_DEVICE_OUT_DEFAULT, 0);
 }
 
-int AudioPolicyManagerBase::StreamDescriptor::getVolumeIndex(audio_devices_t device)
+int AudioPolicyManagerBase::StreamDescriptor::getVolumeIndex(audio_devices_t device) const
 {
     device = AudioPolicyManagerBase::getDeviceForVolume(device);
     // there is always a valid entry for AUDIO_DEVICE_OUT_DEFAULT
@@ -4000,9 +4160,9 @@ void AudioPolicyManagerBase::loadOutChannels(char *name, IOProfile *profile)
     return;
 }
 
-status_t AudioPolicyManagerBase::loadInput(cnode *root, HwModule *module)
+status_t AudioPolicyManagerBase::loadInput(const cnode *root, HwModule *module)
 {
-    cnode *node = root->first_child;
+    const cnode *node = root->first_child;
 
     IOProfile *profile = new IOProfile(module);
 
@@ -4041,9 +4201,9 @@ status_t AudioPolicyManagerBase::loadInput(cnode *root, HwModule *module)
     }
 }
 
-status_t AudioPolicyManagerBase::loadOutput(cnode *root, HwModule *module)
+status_t AudioPolicyManagerBase::loadOutput(const cnode *root, HwModule *module)
 {
-    cnode *node = root->first_child;
+    const cnode *node = root->first_child;
 
     IOProfile *profile = new IOProfile(module);
 
@@ -4145,12 +4305,27 @@ void AudioPolicyManagerBase::loadHwModules(cnode *root)
     }
 }
 
+void AudioPolicyManagerBase::loadCustomProperties(const cnode *root)
+{
+    const cnode *node = root->first_child;
+
+    while (node) {
+        String8 aKey(node->name);
+        String8 aValue(node->value);
+        // Add the property in the custom properties map
+        mCustomPropertiesMap.add(aKey, aValue);
+
+        node = node->next;
+    }
+}
+
 void AudioPolicyManagerBase::loadGlobalConfig(cnode *root)
 {
     cnode *node = config_find(root, GLOBAL_CONFIG_TAG);
     if (node == NULL) {
         return;
     }
+
     node = node->first_child;
     while (node) {
         if (strcmp(ATTACHED_OUTPUT_DEVICES_TAG, node->name) == 0) {
@@ -4168,6 +4343,9 @@ void AudioPolicyManagerBase::loadGlobalConfig(cnode *root)
         } else if (strcmp(ATTACHED_INPUT_DEVICES_TAG, node->name) == 0) {
             mAvailableInputDevices = parseDeviceNames((char *)node->value) & ~AUDIO_DEVICE_BIT_IN;
             ALOGV("loadGlobalConfig() mAvailableInputDevices %04x", mAvailableInputDevices);
+        } else if (strcmp(GLOBAL_CUSTOM_PROPERTIES, node->name) == 0) {
+            // Load custom properties section
+            loadCustomProperties(node);
         }
         node = node->next;
     }
@@ -4224,6 +4402,93 @@ void AudioPolicyManagerBase::defaultAudioPolicyConfig(void)
     module->mInputProfiles.add(profile);
 
     mHwModules.add(module);
+}
+
+bool AudioPolicyManagerBase::getCustomPropertyAsString(const String8 &name, String8 &value) const
+{
+    if (mCustomPropertiesMap.indexOfKey(name) == NAME_NOT_FOUND) {
+        return false;
+    }
+    // Retrieve the value associated to the key
+    value = mCustomPropertiesMap.valueFor(name);
+    return true;
+}
+
+bool AudioPolicyManagerBase::getCustomPropertyAsLong(const String8 &name, long &value) const
+{
+    String8 strValue;
+
+    if (!getCustomPropertyAsString(name, strValue)) {
+        return false;
+    }
+
+    const char *valueAsChars = strValue.string();
+    char *endp;
+    long tmpValue = strtol(valueAsChars, &endp, 10);
+    if (*endp != '\0') {
+        ALOGW("Bad long value for custom property '%s': %s",name.string(),valueAsChars);
+        return false;
+    }
+
+    value = tmpValue;
+    return true;
+}
+
+bool AudioPolicyManagerBase::getCustomPropertyAsULong(const String8 &name, unsigned long &value) const
+{
+    String8 strValue;
+
+    if (!getCustomPropertyAsString(name, strValue)) {
+        return false;
+    }
+
+    const char *valueAsChars = strValue.string();
+    char *endp;
+    unsigned long tmpValue = strtoul(valueAsChars, &endp, 10);
+    if (*endp != '\0') {
+        ALOGW("Bad unsigned long value for custom property '%s': %s",name.string(),valueAsChars);
+        return false;
+    }
+
+    value = tmpValue;
+    return true;
+}
+
+bool AudioPolicyManagerBase::getCustomPropertyAsFloat(const String8 &name, float &value) const
+{
+    String8 strValue;
+
+    if (!getCustomPropertyAsString(name, strValue)) {
+        return false;
+    }
+
+    const char *valueAsChars = strValue.string();
+    char *endp;
+    float tmpValue = strtof(valueAsChars, &endp);
+    if (*endp != '\0') {
+        ALOGW("Bad float value for custom property '%s': %s",name.string(),valueAsChars);
+        return false;
+    }
+
+    value = tmpValue;
+    return true;
+}
+
+bool AudioPolicyManagerBase::getCustomPropertyAsBool(const String8 &name, bool &value) const
+{
+    String8 strValue;
+
+    if (!getCustomPropertyAsString(name, strValue)) {
+        return false;
+    }
+
+    if ((strValue != "true") && (strValue != "false")) {
+        ALOGW("Bad boolean value for custom property '%s': %s",name.string(),strValue.string());
+        return false;
+    }
+
+    value = (strValue == "true");
+    return true;
 }
 
 }; // namespace android
