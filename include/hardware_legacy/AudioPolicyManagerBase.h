@@ -279,7 +279,6 @@ protected:
             uint32_t mLatency;                  //
             audio_output_flags_t mFlags;   //
             audio_devices_t mDevice;                   // current device this output is routed to
-            int mPrevPopCount;
             uint32_t mRefCount[AudioSystem::NUM_STREAM_TYPES]; // number of streams of each type using this output
             nsecs_t mStopTime[AudioSystem::NUM_STREAM_TYPES];
             AudioOutputDescriptor *mOutput1;    // used by duplicated outputs: first output
