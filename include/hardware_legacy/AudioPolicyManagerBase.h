@@ -471,9 +471,6 @@ protected:
                     void        exit();
         int testOutputIndex(audio_io_handle_t output);
 #endif //AUDIO_POLICY_TEST
-#ifdef BGM_ENABLED
-        bool IsBackgroundMusicSupported(AudioSystem::stream_type stream);
-#endif
 
         status_t setEffectEnabled(EffectDescriptor *pDesc, bool enabled);
 
@@ -611,7 +608,11 @@ private:
         //    routing of notifications
         void handleNotificationRoutingForStream(AudioSystem::stream_type stream);
         static bool isVirtualInputDevice(audio_devices_t device);
-
+#ifdef BGM_ENABLED
+        bool IsBackgroundMusicSupported(AudioSystem::stream_type stream);
+        // return the strategy corresponding to a given stream type in case of BGM
+        routing_strategy getStrategyforbackgroundsink(AudioSystem::stream_type stream);
+#endif // BGM_ENABLED
         // Custom properties map
         DefaultKeyedVector<String8, String8> mCustomPropertiesMap;
 };
