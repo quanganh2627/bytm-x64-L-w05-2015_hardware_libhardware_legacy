@@ -330,6 +330,13 @@ static bool ap_is_offload_supported(const struct audio_policy *pol,
     return lap->apm->isOffloadSupported(*info);
 }
 
+static int ap_set_parameters(struct audio_policy *pol,
+                                  const char *keyValuePairs)
+{
+    struct legacy_audio_policy *lap = to_lap(pol);
+    return lap->apm->setParameters(String8(keyValuePairs));
+}
+
 static int create_legacy_ap(const struct audio_policy_device *device,
                             struct audio_policy_service_ops *aps_ops,
                             void *service,
@@ -378,6 +385,8 @@ static int create_legacy_ap(const struct audio_policy_device *device,
     lap->policy.is_source_active = ap_is_source_active;
     lap->policy.dump = ap_dump;
     lap->policy.is_offload_supported = ap_is_offload_supported;
+
+    lap->policy.set_parameters = ap_set_parameters;
 
     lap->service = service;
     lap->aps_ops = aps_ops;
