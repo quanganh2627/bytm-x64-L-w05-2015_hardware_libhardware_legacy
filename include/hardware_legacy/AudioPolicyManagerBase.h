@@ -167,6 +167,8 @@ public:
 
         virtual bool isOffloadSupported(const audio_offload_info_t& offloadInfo);
 
+        virtual status_t setParameters(const String8 &keyValuePairs);
+
 protected:
 
         enum routing_strategy {
@@ -554,6 +556,8 @@ protected:
         bool getCustomPropertyAsULong(const String8 &name, unsigned long &value) const;
         bool getCustomPropertyAsFloat(const String8 &name, float &value) const;
         bool getCustomPropertyAsBool(const String8 &name, bool &value) const;
+
+        virtual status_t doParseParameters(AudioParameter &param);
 
         // check if stream is valid
         static bool isStreamValid(AudioSystem::stream_type stream);

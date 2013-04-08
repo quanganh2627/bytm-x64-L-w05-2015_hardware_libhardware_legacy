@@ -1814,6 +1814,17 @@ bool AudioPolicyManagerBase::isOffloadSupported(const audio_offload_info_t& offl
     return (profile != NULL);
 }
 
+status_t AudioPolicyManagerBase::setParameters(const String8 &keyValuePairs)
+{
+    AudioParameter param = AudioParameter(keyValuePairs);
+    return doParseParameters(param);
+}
+
+status_t AudioPolicyManagerBase::doParseParameters(AudioParameter &param)
+{
+    return NO_ERROR;
+}
+
 // ----------------------------------------------------------------------------
 // AudioPolicyManagerBase
 // ----------------------------------------------------------------------------
