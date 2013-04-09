@@ -161,6 +161,7 @@ protected:
             STRATEGY_DTMF,
             STRATEGY_ENFORCED_AUDIBLE,
             STRATEGY_BACKGROUND_MUSIC,
+            STRATEGY_FM_RADIO,
             NUM_STRATEGIES
         };
 
@@ -588,6 +589,8 @@ protected:
 
         static bool mIsDirectOutputActive; //check whether direct thread is active or not
 
+        static bool mFmIsOn; // true if FM is on going
+
 #ifdef AUDIO_POLICY_TEST
         Mutex   mLock;
         Condition mWaitWorkCV;
@@ -609,6 +612,7 @@ protected:
 
 
 private:
+        void doSetFmParameters(AudioParameter& param);
         static float volIndexToAmpl(audio_devices_t device, const StreamDescriptor& streamDesc,
                 int indexInUi);
         // updates device caching and output for streams that can influence the

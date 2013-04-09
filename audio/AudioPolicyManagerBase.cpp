@@ -73,6 +73,7 @@ namespace android_audio_legacy {
 
 //[FIX ME] this is used to route notifications to IHF when HDMI MC is active
 bool AudioPolicyManagerBase :: mIsDirectOutputActive;
+bool AudioPolicyManagerBase :: mFmIsOn;
 
 // ----------------------------------------------------------------------------
 // AudioPolicyInterface implementation
@@ -128,7 +129,7 @@ public:
                 break;
             */
             case AUDIO_DEVICE_OUT_AUX_DIGITAL:
-                if(mCurrentHdmiDeviceCapability == CAP_HDMI_8)
+                if (mCurrentHdmiDeviceCapability == CAP_HDMI_8)
                 {
                     property_set(DOLBY_SYSTEM_PROPERTY, "hdmi8");
                     ALOGV("DOLBY_ENDPOINT HDMI8");
@@ -668,6 +669,16 @@ void AudioPolicyManagerBase::setForceUse(AudioSystem::force_use usage, AudioSyst
         forceVolumeReeval = true;
         mForceUse[usage] = config;
         break;
+    case AudioSystem::FOR_FM_RADIO:
+        if (config != AudioSystem::FORCE_NONE && config != AudioSystem::FORCE_SPEAKER &&
+            config != AudioSystem::FORCE_HEADPHONES &&
+            config != AudioSystem::FORCE_WIRED_ACCESSORY)
+        {
+            ALOGW("setForceUse() invalid config %d for FOR_FM_RADIO", config);
+        }
+        forceVolumeReeval = true;
+        mForceUse[usage] = config;
+        break;
     default:
         ALOGW("setForceUse() invalid usage %d", usage);
         break;
@@ -745,7 +756,7 @@ AudioPolicyManagerBase::IOProfile *AudioPolicyManagerBase::getProfileForDirectOu
                         return mHwModules[i]->mOutputProfiles[j];
                     }
                 }
-            } else if((channelMask <= AUDIO_CHANNEL_OUT_STEREO) &&
+            } else if ((channelMask <= AUDIO_CHANNEL_OUT_STEREO) &&
                       (device == AudioSystem::DEVICE_OUT_AUX_DIGITAL) &&
                        !(flags & AUDIO_OUTPUT_FLAG_DIRECT)){
                   /*Direct output is selected only for multichannel content over HDMI
@@ -1061,7 +1072,7 @@ status_t AudioPolicyManagerBase::startOutput(audio_io_handle_t output,
     // necessary for a correct control of hardware output routing by startOutput() and stopOutput()
     outputDesc->changeRefCount(stream, 1);
 
-    if((outputDesc->mFlags & AudioSystem::OUTPUT_FLAG_DIRECT) &&
+    if ((outputDesc->mFlags & AudioSystem::OUTPUT_FLAG_DIRECT) &&
        ((mAvailableOutputDevices & AudioSystem::DEVICE_OUT_AUX_DIGITAL) ||
         (mAvailableOutputDevices & AudioSystem::DEVICE_OUT_DGTL_DOCK_HEADSET))) {
        ALOGD("startoutput() Direct thread is active");
@@ -1129,7 +1140,7 @@ status_t AudioPolicyManagerBase::startOutput(audio_io_handle_t output,
     }
 #endif // DOLBY_END
 #ifdef DOLBY_DAP_OPENSLES_MOVE_EFFECT
-    if((stream == AudioSystem::MUSIC) && (checkFlagsToMoveDs(outputDesc->mFlags))) {
+    if ((stream == AudioSystem::MUSIC) && (checkFlagsToMoveDs(outputDesc->mFlags))) {
         status_t status = NO_ERROR;
         for (size_t i = 0; i < mEffects.size(); i++) {
             EffectDescriptor *desc = mEffects.editValueAt(i);
@@ -1167,10 +1178,10 @@ status_t AudioPolicyManagerBase::stopOutput(audio_io_handle_t output,
 
     AudioOutputDescriptor *outputDesc = mOutputs.valueAt(index);
 
-    if((outputDesc->mFlags & AudioSystem::OUTPUT_FLAG_DIRECT) &&
+    if ((outputDesc->mFlags & AudioSystem::OUTPUT_FLAG_DIRECT) &&
        ((mAvailableOutputDevices & AudioSystem::DEVICE_OUT_AUX_DIGITAL) ||
         (mAvailableOutputDevices & AudioSystem::DEVICE_OUT_DGTL_DOCK_HEADSET))){
-        if(outputDesc->mDirectOpenCount <= 0) {
+        if (outputDesc->mDirectOpenCount <= 0) {
            ALOGD("stopoutput() Direct thread is stopped -inactive");
            mIsDirectOutputActive = false;
         }
@@ -1215,7 +1226,7 @@ status_t AudioPolicyManagerBase::stopOutput(audio_io_handle_t output,
             handleNotificationRoutingForStream(stream);
         }
 #ifdef DOLBY_DAP_OPENSLES_MOVE_EFFECT
-        if((stream == AudioSystem::MUSIC) && (checkFlagsToMoveDs(outputDesc->mFlags))) {
+        if ((stream == AudioSystem::MUSIC) && (checkFlagsToMoveDs(outputDesc->mFlags))) {
             status_t status = NO_ERROR;
             for (size_t i = 0; i < mEffects.size(); i++) {
                 EffectDescriptor *desc = mEffects.editValueAt(i);
@@ -1985,7 +1996,51 @@ status_t AudioPolicyManagerBase::setParameters(const String8 &keyValuePairs)
 
 status_t AudioPolicyManagerBase::doParseParameters(AudioParameter &param)
 {
+    doSetFmParameters(param);
+
     return NO_ERROR;
+}
+
+void AudioPolicyManagerBase::doSetFmParameters(AudioParameter& param)
+{
+    // Search FM parameter (B+ specific)
+    static const char* FM_ROUTE_PARAM_KEY = "route-fm";
+
+    String8 key = String8(FM_ROUTE_PARAM_KEY);
+    String8 strFmRoute;
+    if (param.get(key, strFmRoute) == NO_ERROR) {
+
+        // Remove parameter
+        param.remove(key);
+
+        // Search FM parameter values (B+ specific)
+        static const char* FM_ROUTE_REQUESTING_SPEAKER = "speaker";
+        static const char* FM_ROUTE_REQUESTING_HEADSET = "headset";
+
+        bool isFmOn = false;
+        bool isFmForcedOnSpeaker = false;
+        if (strFmRoute == FM_ROUTE_REQUESTING_SPEAKER) {
+
+            ALOGD("%s: FM ON, forced on speaker", __FUNCTION__);
+            isFmOn = true;
+            isFmForcedOnSpeaker = true;
+
+        } else if (strFmRoute == FM_ROUTE_REQUESTING_HEADSET) {
+
+            ALOGD("%s: FM ON on headset", __FUNCTION__);
+            isFmOn = true;
+        }
+
+        if (mFmIsOn != isFmOn) {
+            mFmIsOn = isFmOn;
+            LOGV("FM mode is on, %screment MUSIC stream count", mFmIsOn? "inc" : "dec");
+            AudioOutputDescriptor *outputDesc = mOutputs.valueFor(mPrimaryOutput);
+            outputDesc->changeRefCount(AudioSystem::MUSIC, mFmIsOn? 1 : -1);
+        }
+
+        setForceUse(AudioSystem::FOR_FM_RADIO, isFmForcedOnSpeaker ? AudioSystem::FORCE_SPEAKER :
+                AudioSystem::FORCE_NONE);
+    }
 }
 
 // ----------------------------------------------------------------------------
@@ -2008,6 +2063,7 @@ AudioPolicyManagerBase::AudioPolicyManagerBase(AudioPolicyClientInterface *clien
     mBGMOutput(0)
 {
     mpClientInterface = clientInterface;
+    mFmIsOn = false;
 
     for (int i = 0; i < AudioSystem::NUM_FORCE_USE; i++) {
         mForceUse[i] = AudioSystem::FORCE_NONE;
@@ -2647,7 +2703,7 @@ void AudioPolicyManagerBase::checkOutputForStrategy(routing_strategy strategy)
         }
 
         // Move effects associated to this strategy from previous output to new output
-        if (strategy == STRATEGY_MEDIA) {
+        if (strategy == STRATEGY_MEDIA || strategy == STRATEGY_FM_RADIO) {
             audio_io_handle_t fxOutput = selectOutputForEffects(dstOutputs);
             SortedVector<audio_io_handle_t> moved;
             for (size_t i = 0; i < mEffects.size(); i++) {
@@ -2688,6 +2744,7 @@ void AudioPolicyManagerBase::checkOutputForAllStrategies()
     checkOutputForStrategy(STRATEGY_SONIFICATION_RESPECTFUL);
     checkOutputForStrategy(STRATEGY_SONIFICATION_LOCAL);
     checkOutputForStrategy(STRATEGY_MEDIA);
+    checkOutputForStrategy(STRATEGY_FM_RADIO);
     checkOutputForStrategy(STRATEGY_DTMF);
 }
 
@@ -2769,7 +2826,7 @@ audio_devices_t AudioPolicyManagerBase::getNewDevice(audio_io_handle_t output, b
     // 5: the strategy "respectful" sonification is active on the output:
     //      use device for strategy "respectful" sonification
     // 6: the strategy media is active on the output:
-    //      use device for strategy media
+    //      use device for strategy media or fm_radio
     // 7: the strategy DTMF is active on the output:
     //      use device for strategy DTMF
     if (outputDesc->isStrategyActive(STRATEGY_ENFORCED_AUDIBLE)) {
@@ -2792,6 +2849,8 @@ audio_devices_t AudioPolicyManagerBase::getNewDevice(audio_io_handle_t output, b
 #endif //BGM_ENABLED
     } else if (outputDesc->isStrategyActive(STRATEGY_DTMF)) {
         device = getDeviceForStrategy(STRATEGY_DTMF, fromCache);
+    } else if (outputDesc->isStrategyActive(STRATEGY_FM_RADIO)) {
+        device = getDeviceForStrategy(STRATEGY_FM_RADIO, fromCache);
     }
 
     ALOGV("getNewDevice() selected device %x", device);
@@ -2831,7 +2890,7 @@ AudioPolicyManagerBase::routing_strategy AudioPolicyManagerBase::getStrategyforb
     // if bgm is enabled, all notifications, alarm, touch tones must be
     // routed to the primary device user and it must not interfere with
     // the remote user playback
-    if(mIsBGMEnabled) {
+    if (mIsBGMEnabled) {
       switch (stream) {
       case AudioSystem::DTMF:
       case AudioSystem::SYSTEM:
@@ -2846,7 +2905,7 @@ AudioPolicyManagerBase::routing_strategy AudioPolicyManagerBase::getStrategyforb
     // if widi device is connected, alarm must be heard only in local,
     // notification must be heard on both DUT and Widi
     // in all modes
-    if(((mAvailableOutputDevices & AudioSystem::DEVICE_OUT_WIDI) ||
+    if (((mAvailableOutputDevices & AudioSystem::DEVICE_OUT_WIDI) ||
         (mAvailableOutputDevices & AudioSystem::DEVICE_OUT_REMOTE_SUBMIX))) {
         switch (stream) {
         case AudioSystem::ALARM:
@@ -2872,17 +2931,17 @@ AudioPolicyManagerBase::routing_strategy AudioPolicyManagerBase::getStrategy(
     case AudioSystem::RING:
         return STRATEGY_SONIFICATION_LOCAL;
     case AudioSystem::ALARM:
-        if(mIsDirectOutputActive)
+        if (mIsDirectOutputActive)
           return STRATEGY_SONIFICATION_LOCAL;
         else
           return STRATEGY_SONIFICATION;
     case AudioSystem::NOTIFICATION:
-        if(mIsDirectOutputActive)
+        if (mIsDirectOutputActive)
           return STRATEGY_SONIFICATION_LOCAL;
         else
           return STRATEGY_SONIFICATION_RESPECTFUL;
     case AudioSystem::DTMF:
-        if(mIsDirectOutputActive)
+        if (mIsDirectOutputActive)
           return STRATEGY_SONIFICATION_LOCAL;
         else
           return STRATEGY_DTMF;
@@ -2892,12 +2951,15 @@ AudioPolicyManagerBase::routing_strategy AudioPolicyManagerBase::getStrategy(
         // NOTE: SYSTEM stream uses MEDIA strategy because muting music and switching outputs
         // while key clicks are played produces a poor result
     case AudioSystem::TTS:
-        if(mIsDirectOutputActive)
+        if (mIsDirectOutputActive)
           return STRATEGY_SONIFICATION_LOCAL;
         else
           return STRATEGY_MEDIA;
     case AudioSystem::MUSIC:
-        return STRATEGY_MEDIA;
+        if (mFmIsOn)
+            return STRATEGY_FM_RADIO;
+        else
+            return STRATEGY_MEDIA;
     case AudioSystem::ENFORCED_AUDIBLE:
         return STRATEGY_ENFORCED_AUDIBLE;
     }
@@ -2956,6 +3018,11 @@ audio_devices_t AudioPolicyManagerBase::getDeviceForStrategy(routing_strategy st
 
     case STRATEGY_DTMF:
         if (!isInCall()) {
+            // If FM is on, follow the FM_RADIO strategy policy
+            if (mFmIsOn) {
+                device = getDeviceForStrategy(STRATEGY_FM_RADIO, false /*fromCache*/);
+                break;
+            }
             // when off call, DTMF strategy follows the same rules as MEDIA strategy
             device = getDeviceForStrategy(STRATEGY_MEDIA, false /*fromCache*/);
             break;
@@ -3115,6 +3182,10 @@ audio_devices_t AudioPolicyManagerBase::getDeviceForStrategy(routing_strategy st
                 break;
         }
 
+        if (mFmIsOn) {
+            device2 = getDeviceForStrategy(STRATEGY_FM_RADIO, false /*fromCache*/);
+        }
+
 #ifdef BGM_ENABLED
         //If BGM devices are present, always force the output to it
         // - other attached sinks will be handled in STRATEGY_BACKGROUND_MUSIC
@@ -3193,6 +3264,9 @@ audio_devices_t AudioPolicyManagerBase::getDeviceForStrategy(routing_strategy st
         uint32_t device2 = 0;
 
         ALOGV("[BGMUSIC] STRATEGY_BACKGROUND_MUSIC");
+        if (mFmIsOn) {
+            device2 = getDeviceForStrategy(STRATEGY_FM_RADIO, false /*fromCache*/);
+        }
 
         if (mHasA2dp && (mForceUse[AudioSystem::FOR_MEDIA] != AudioSystem::FORCE_NO_BT_A2DP) &&
             (getA2dpOutput() != 0) && !mA2dpSuspended) {
@@ -3228,6 +3302,30 @@ audio_devices_t AudioPolicyManagerBase::getDeviceForStrategy(routing_strategy st
         }
 #endif //BGM_ENABLED
         } //STRATEGY_BACKGROUND_MUSIC
+        break;
+
+    case STRATEGY_FM_RADIO: {
+
+        uint32_t device2 = 0;
+
+        if (mForceUse[AudioSystem::FOR_FM_RADIO] == AudioSystem::FORCE_SPEAKER) {
+            LOGV("getDeviceForStrategy():Force use of SPEAKER for STRATEGY_FM_RADIO.");
+            device2 = mAvailableOutputDevices & AudioSystem::DEVICE_OUT_SPEAKER;
+        }
+        if (device2 == 0) {
+            device2 = mAvailableOutputDevices & AudioSystem::DEVICE_OUT_WIRED_HEADPHONE;
+        }
+        if (device2 == 0) {
+            device2 = mAvailableOutputDevices & AudioSystem::DEVICE_OUT_WIRED_HEADSET;
+        }
+
+        device |= device2;
+        if (device) break;
+        device = mDefaultOutputDevice;
+        if (device == 0) {
+            ALOGE("getDeviceForStrategy() no device found for STRATEGY_FM_RADIO");
+        }
+    }
         break;
 
     default:
@@ -3931,14 +4029,14 @@ status_t AudioPolicyManagerBase::checkAndSetVolume(int stream,
          SortedVector<audio_io_handle_t> outputs = getOutputsForDevice(device2, mOutputs);
          for(size_t i = 0; i <  mOutputs.size(); i++) {
              desc = mOutputs.valueAt(i);
-             if(desc->isActive())
+             if (desc->isActive())
                 break;
          }
          //BGM is applicable only for music streams - there is a possibility of
          // an inactive output based on a different strategy returned here. There
          // is no need of applying volume for this output
-         if(desc != NULL) {
-             if(!desc->isActive()) {
+         if (desc != NULL) {
+             if (!desc->isActive()) {
                 ALOGVV("[BGMUSIC] No active outputs available for BGM - no volume applied");
                 return NO_ERROR;
              }

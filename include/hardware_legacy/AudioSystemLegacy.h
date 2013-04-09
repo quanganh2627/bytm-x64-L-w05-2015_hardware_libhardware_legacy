@@ -305,6 +305,7 @@ public:
         FOR_RECORD,
         FOR_DOCK,
         FOR_SYSTEM,
+        FOR_FM_RADIO,
         NUM_FORCE_USE
     };
 
