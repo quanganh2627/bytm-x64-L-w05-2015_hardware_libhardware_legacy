@@ -320,6 +320,7 @@ static bool ap_is_offload_supported(struct audio_policy *pol,
                                    uint32_t samplingRate,
                                    uint32_t bitRate,
                                    int64_t duration,
+                                   int sessionId,
                                    bool isVideo,
                                    bool isStreaming)
 {
@@ -328,7 +329,7 @@ static bool ap_is_offload_supported(struct audio_policy *pol,
 
     ALOGV("%s: tid %d", __func__, gettid());
     return lap->apm->isOffloadSupported(format, stream,
-                       samplingRate, bitRate, duration, isVideo, isStreaming);
+                       samplingRate, bitRate, duration, sessionId, isVideo, isStreaming);
 }
 
 static int create_legacy_ap(const struct audio_policy_device *device,

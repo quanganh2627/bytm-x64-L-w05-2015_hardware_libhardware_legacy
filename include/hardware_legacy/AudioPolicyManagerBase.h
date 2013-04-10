@@ -144,6 +144,7 @@ public:
                                          uint32_t samplingRate,
                                          uint32_t bitRate,
                                          int64_t duration,
+                                         int sessionId,
                                          bool hasVideo = false,
                                          bool hasStreaming = false);
 
@@ -539,6 +540,7 @@ protected:
         AudioPolicyClientInterface *mpClientInterface;  // audio policy client interface
         audio_io_handle_t mPrimaryOutput;              // primary output handle
         audio_io_handle_t mMusicOffloadOutput;          // Music offload output handler
+        int mMusicOffloadSessionId;          // Audio session which has active offload output
         // list of descriptors for outputs currently opened
         DefaultKeyedVector<audio_io_handle_t, AudioOutputDescriptor *> mOutputs;
         // copy of mOutputs before setDeviceConnectionState() opens new outputs

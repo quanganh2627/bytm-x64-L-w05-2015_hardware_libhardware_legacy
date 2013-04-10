@@ -893,6 +893,8 @@ status_t AudioPolicyManagerBase::startOutput(audio_io_handle_t output,
        AudioParameter param;
        param.addInt(String8(AudioParameter::keyStreamFlags), AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD);
        mpClientInterface->setParameters(0, param.toString(), 0);
+       // Stores the current audio sessionId for use in gapless offlaoded playback.
+       mMusicOffloadSessionId = session;
     }
 
     if (outputDesc->mRefCount[stream] == 1) {
@@ -1538,13 +1540,14 @@ bool AudioPolicyManagerBase::isOffloadSupported(uint32_t format,
                                     uint32_t samplingRate,
                                     uint32_t bitRate,
                                     int64_t duration,
+                                    int sessionId,
                                     bool isVideo,
                                     bool isStreaming)
 {
     ALOGV("isOffloadSupported: format=%d,"
          "stream=%x, sampRate %d, bitRate %d,"
-         "durt %lld, isVideo %d, isStreaming %d",
-         format, stream, samplingRate, bitRate, duration, (int)isVideo, (int)isStreaming);
+         "durt %lld, sessionId %d, isVideo %d, isStreaming %d",
+         format, stream, samplingRate, bitRate, duration, sessionId, (int)isVideo, (int)isStreaming);
     // lpa.tunnelling.enable is used for testing. Should be 1 for normal operation
     bool useLPA = false;
     char value[PROPERTY_VALUE_MAX];
@@ -1563,7 +1566,7 @@ bool AudioPolicyManagerBase::isOffloadSupported(uint32_t format,
         return false;
     }
     // The LPE Music offload output is not free, return PCM
-    if (mMusicOffloadOutput == true) {
+    if ((mMusicOffloadOutput) && (sessionId != mMusicOffloadSessionId)) {
         ALOGV("isOffloadSupported: mMusicOffloadOutput = %d", mMusicOffloadOutput);
         ALOGV("isOffloadSupported: Already offload in progress, use non offload decoding");
         return false;
