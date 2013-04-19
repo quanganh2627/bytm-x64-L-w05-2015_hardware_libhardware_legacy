@@ -38,6 +38,9 @@
    #define BGM_OUTPUT_IN_USE -1
 #endif //BGM_ENABLED
 
+//This is currently disabled for Intel platforms
+//#define CHECK_MAX_EFFECT_MEMORY
+
 #include <utils/Log.h>
 #include <hardware_legacy/AudioPolicyManagerBase.h>
 #include <hardware/audio_effect.h>
