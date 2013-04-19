@@ -89,10 +89,6 @@ static char primary_iface[PROPERTY_VALUE_MAX];
 #define WIFI_DRIVER_FW_PATH_PARAM	"/sys/module/wlan/parameters/fwpath"
 #endif
 
-#ifndef WIFI_DRIVER_MODE_PATH_PARAM
-#define WIFI_DRIVER_MODE_PATH_PARAM	"/sys/module/bcmdhd/parameters/op_mode"
-#endif
-
 #define WIFI_DRIVER_LOADER_DELAY	1000000
 
 static const char IFACE_DIR[]           = "/data/system/wpa_supplicant";
@@ -945,8 +941,10 @@ const char *wifi_get_fw_path(int fw_type)
 
     switch (fw_type) {
     case WIFI_GET_FW_PATH_STA:
-	if (!property_get(BCM_PROP_CHIP, bcm_prop_chip, NULL)) {
-	    if (strstr(bcm_prop_chip, "4334"))
+	if (property_get(BCM_PROP_CHIP, bcm_prop_chip, NULL)) {
+	    if (strstr(bcm_prop_chip, "43241"))
+		return WIFI_DRIVER_43241_FW_PATH_STA;
+	    else if (strstr(bcm_prop_chip, "4334"))
 		return WIFI_DRIVER_4334_FW_PATH_STA;
 	    else if (strstr(bcm_prop_chip, "4335"))
 		return WIFI_DRIVER_4335_FW_PATH_STA;
@@ -954,8 +952,10 @@ const char *wifi_get_fw_path(int fw_type)
 	else
 	    return WIFI_DRIVER_FW_PATH_STA;
     case WIFI_GET_FW_PATH_AP:
-	if (!property_get(BCM_PROP_CHIP, bcm_prop_chip, NULL)) {
-	    if (strstr(bcm_prop_chip, "4334"))
+	if (property_get(BCM_PROP_CHIP, bcm_prop_chip, NULL)) {
+	    if (strstr(bcm_prop_chip, "43241"))
+		return WIFI_DRIVER_43241_FW_PATH_AP;
+	    else if (strstr(bcm_prop_chip, "4334"))
 		return WIFI_DRIVER_4334_FW_PATH_AP;
 	    else if (strstr(bcm_prop_chip, "4335"))
 		return WIFI_DRIVER_4335_FW_PATH_AP;
@@ -963,8 +963,10 @@ const char *wifi_get_fw_path(int fw_type)
 	else
 	    return WIFI_DRIVER_FW_PATH_AP;
     case WIFI_GET_FW_PATH_P2P:
-	if (!property_get(BCM_PROP_CHIP, bcm_prop_chip, NULL)) {
-	    if (strstr(bcm_prop_chip, "4334"))
+	if (property_get(BCM_PROP_CHIP, bcm_prop_chip, NULL)) {
+	    if (strstr(bcm_prop_chip, "43241"))
+		return WIFI_DRIVER_43241_FW_PATH_P2P;
+	    else if (strstr(bcm_prop_chip, "4334"))
 		return WIFI_DRIVER_4334_FW_PATH_P2P;
 	    else if (strstr(bcm_prop_chip, "4335"))
 		return WIFI_DRIVER_4335_FW_PATH_P2P;
@@ -1143,6 +1145,7 @@ int wifi_change_fw_path(const char *fwpath)
 int wifi_switch_driver_mode(int mode)
 {
     char mode_str[8];
+    char bcm_prop_chip[PROPERTY_VALUE_MAX]="";
 
     /**
      * BIT(0), BIT(1),.. come from dhd.h in the driver code, and we need to
@@ -1167,6 +1170,15 @@ int wifi_switch_driver_mode(int mode)
 	break;
     }
 
-    return write_to_file(WIFI_DRIVER_MODE_PATH_PARAM,
-			 mode_str, strlen(mode_str));
+    property_get(BCM_PROP_CHIP, bcm_prop_chip, "");
+    if(strlen(bcm_prop_chip)) {
+      char file_to_write[4096]="";
+      sprintf(file_to_write,"/sys/module/bcm%s/parameters/op_mode",bcm_prop_chip);
+      return write_to_file(file_to_write,mode_str, strlen(mode_str));
+    }
+    else {
+      ALOGE("wifi_switch_driver_mode: error! %s property is empty", BCM_PROP_CHIP);
+      return -1;
+    }
 }
+
