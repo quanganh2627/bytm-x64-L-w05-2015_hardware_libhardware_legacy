@@ -28,6 +28,9 @@
 // active inputs in getActiveInput()
 #define APM_AUDIO_IN_DEVICE_VIRTUAL_ALL  AUDIO_DEVICE_IN_REMOTE_SUBMIX
 
+//This is currently disabled for Intel platforms
+//#define CHECK_MAX_EFFECT_MEMORY
+
 #include <utils/Log.h>
 #include <hardware_legacy/AudioPolicyManagerBase.h>
 #include <hardware/audio_effect.h>
@@ -1333,11 +1336,15 @@ status_t AudioPolicyManagerBase::registerEffect(const effect_descriptor_t *desc,
         }
     }
 
+#ifdef CHECK_MAX_EFFECT_MEMORY
+    // This check is not required for Intel platforms, hence this code is currently disabled.
     if (mTotalEffectsMemory + desc->memoryUsage > getMaxEffectsMemory()) {
         ALOGW("registerEffect() memory limit exceeded for Fx %s, Memory %d KB",
                 desc->name, desc->memoryUsage);
         return INVALID_OPERATION;
     }
+#endif
+
     mTotalEffectsMemory += desc->memoryUsage;
     ALOGV("registerEffect() effect %s, io %d, strategy %d session %d id %d",
             desc->name, io, strategy, session, id);
