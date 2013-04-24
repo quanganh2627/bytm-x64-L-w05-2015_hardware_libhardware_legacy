@@ -2434,6 +2434,7 @@ AudioPolicyManagerBase::routing_strategy AudioPolicyManagerBase::getStrategyforb
       case AudioSystem::SYSTEM:
       case AudioSystem::TTS:
       case AudioSystem::ENFORCED_AUDIBLE:
+      case AudioSystem::RING:
           return STRATEGY_BACKGROUND_MUSIC;
       default:
         ALOGVV("unsupported BGM strategy");
