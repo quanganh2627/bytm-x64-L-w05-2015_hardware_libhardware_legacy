@@ -88,6 +88,24 @@ bool AudioPolicyManagerBase::IsBackgroundMusicSupported(AudioSystem::stream_type
        } else if(mBGMOutput == BGM_OUTPUT_IN_USE) mBGMOutput = 0;
     }
 
+    {
+       char* isBGMAudioActive;
+       bool IsBGMAudioavailable;
+       char* isBGMAudioValue;
+       reply = mpClientInterface->getParameters(0, String8(AUDIO_PARAMETER_VALUE_REMOTE_BGM_AUDIO));
+       ALOGVV("%s isBGMAudioActive = %s",__func__,reply.string());
+       isBGMAudioValue = strpbrk((char *)reply.string(), "=");
+       ++isBGMAudioValue;
+       IsBGMAudioavailable = strcmp(isBGMAudioValue,"true") ? false : true;
+       ALOGV("%s IsBGMAudioavailable = %d",__func__,IsBGMAudioavailable);
+       // For video only stream, audio path will bit be active. But the remote BGM sink
+       //  must be marked as being in use, so that parallel playback is possible
+       if((!IsBGMAudioavailable) && (mIsBGMEnabled) && (stream == AudioSystem::MUSIC)) {
+           mBGMOutput = BGM_OUTPUT_IN_USE;
+           ALOGV("%s audio not available; mBGMOutput = %d",__func__,mBGMOutput);
+       } else if(mBGMOutput == BGM_OUTPUT_IN_USE) mBGMOutput = 0;
+    }
+
     //enable BGM only for music streams
     if ((mIsBGMEnabled) && (stream == AudioSystem::MUSIC)) {
         return true;
