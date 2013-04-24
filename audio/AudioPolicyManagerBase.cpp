@@ -31,6 +31,10 @@
 //This is currently disabled for Intel platforms
 //#define CHECK_MAX_EFFECT_MEMORY
 
+#ifdef BGM_ENABLED
+   #define BGM_OUTPUT_IN_USE -1
+#endif //BGM_ENABLED
+
 #include <utils/Log.h>
 #include <hardware_legacy/AudioPolicyManagerBase.h>
 #include <hardware/audio_effect.h>
@@ -64,12 +68,29 @@ bool AudioPolicyManagerBase::IsBackgroundMusicSupported(AudioSystem::stream_type
        mIsBGMEnabled = strcmp(isBGMEnabledValue,"true") ? false : true;
     }
 
+    {
+       char* isBGMAudioActive;
+       bool IsBGMAudioavailable;
+       char* isBGMAudioValue;
+       reply = mpClientInterface->getParameters(0, String8(AUDIO_PARAMETER_VALUE_REMOTE_BGM_AUDIO));
+       ALOGVV("%s isBGMAudioActive = %s",__func__,reply.string());
+       isBGMAudioValue = strpbrk((char *)reply.string(), "=");
+       ++isBGMAudioValue;
+       IsBGMAudioavailable = strcmp(isBGMAudioValue,"true") ? false : true;
+       ALOGV("%s IsBGMAudioavailable = %d",__func__,IsBGMAudioavailable);
+       // For video only stream, audio path will bit be active. But the remote BGM sink
+       //  must be marked as being in use, so that parallel playback is possible
+       if((!IsBGMAudioavailable) && (mIsBGMEnabled) && (stream == AudioSystem::MUSIC)) {
+           mBGMOutput = BGM_OUTPUT_IN_USE;
+           ALOGV("%s audio not available; mBGMOutput = %d",__func__,mBGMOutput);
+       } else if(mBGMOutput == BGM_OUTPUT_IN_USE) mBGMOutput = 0;
+    }
+
     //enable BGM only for music streams
     if ((mIsBGMEnabled) && (stream == AudioSystem::MUSIC)) {
-       return true;
-    }
-    else {
-       return false;
+        return true;
+    } else {
+        return false;
     }
 }
 #endif //BGM_ENABLED
@@ -139,7 +160,7 @@ status_t AudioPolicyManagerBase::setDeviceConnectionState(audio_devices_t device
             //Check whether the new device supports background music or not
             if (device & AUDIO_DEVICE_OUT_REMOTE_BGM_SINK) {
                 if (IsBackgroundMusicSupported(AudioSystem::MUSIC)) {
-                    ALOGV("[BGMUSIC] Enabling remote background music support");
+                    ALOGV("[BGMUSIC] DEVICE_STATE_AVAILABLE:: remote BGM active");
                 }
                 mBGMOutput = 0;
                 ALOGV("[BGMUSIC] setDeviceConnectionState() mIsBGMEnabled = %d", mIsBGMEnabled);
@@ -185,7 +206,7 @@ status_t AudioPolicyManagerBase::setDeviceConnectionState(audio_devices_t device
         //disable the background music if the devices supporting BGM becomes unavailable
             if (device & AUDIO_DEVICE_OUT_REMOTE_BGM_SINK) {
                 if (IsBackgroundMusicSupported(AudioSystem::MUSIC)) {
-                  ALOGV("[BGMUSIC] Enabling remote background music support");
+                  ALOGV("[BGMUSIC] DEVICE_STATE_UNAVAILABLE:: remote BGM active");
                 }
                 mBGMOutput = 0;
                 ALOGD("[BGMUSIC] Disable background music support mIsBGMEnabled = %d", mIsBGMEnabled);
@@ -630,19 +651,17 @@ audio_io_handle_t AudioPolicyManagerBase::getOutput(AudioSystem::stream_type str
     ALOGI("APM: getOutput");
     audio_io_handle_t output = 0;
     uint32_t latency = 0;
-#ifdef BGM_ENABLED
-    // override the strategy if BGM is enabled
-    routing_strategy strategy = getStrategyforbackgroundsink((AudioSystem::stream_type)stream);
-#else
-    routing_strategy strategy = getStrategy((AudioSystem::stream_type)stream);
-#endif //BGM_ENABLED
 
 #ifdef BGM_ENABLED
     //There can be scenarios where the user selects/deselects bgm support
     //  hence check for the support before opening any output
     if (IsBackgroundMusicSupported(stream)) {
-       ALOGV("[BGMUSIC] Enabling remote background music support");
+       ALOGV("[BGMUSIC] remote background music support active");
     }
+    // override the strategy if BGM is enabled
+    routing_strategy strategy = getStrategyforbackgroundsink((AudioSystem::stream_type)stream);
+#else
+    routing_strategy strategy = getStrategy((AudioSystem::stream_type)stream);
 #endif //BGM_ENABLED
 
     audio_devices_t device = getDeviceForStrategy(strategy, false /*fromCache*/);
@@ -777,6 +796,7 @@ audio_io_handle_t AudioPolicyManagerBase::getOutput(AudioSystem::stream_type str
         && (mIsBGMEnabled)
         && (device & AUDIO_DEVICE_OUT_REMOTE_BGM_SINK)) {
             mBGMOutput = output;
+            ALOGV("[BGMUSIC] save output %d", mBGMOutput);
     }
 #endif //BGM_ENABLED
 
