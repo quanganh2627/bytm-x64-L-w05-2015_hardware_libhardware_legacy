@@ -318,25 +318,6 @@ void AudioPolicyManagerBase::setPhoneState(int state)
     // store previous phone state for management of sonification strategy below
     int oldState = mPhoneState;
     mPhoneState = state;
-    bool force = false;
-
-    // are we entering or starting a call
-    if (!isStateInCall(oldState) && isStateInCall(state)) {
-        ALOGV("  Entering call in setPhoneState()");
-        // force routing command to audio hardware when starting a call
-        // even if no device change is needed
-        force = true;
-    } else if (isStateInCall(oldState) && !isStateInCall(state)) {
-        ALOGV("  Exiting call in setPhoneState()");
-        // force routing command to audio hardware when exiting a call
-        // even if no device change is needed
-        force = true;
-    } else if (isStateInCall(state) && (state != oldState)) {
-        ALOGV("  Switching between telephony and VoIP in setPhoneState()");
-        // force routing command to audio hardware when switching between telephony and VoIP
-        // even if no device change is needed
-        force = true;
-    }
 
     // check for device and output changes triggered by new phone state
     newDevice = getNewDevice(mPrimaryOutput, false /*fromCache*/);
@@ -379,7 +360,7 @@ void AudioPolicyManagerBase::setPhoneState(int state)
     }
 
     // change routing is necessary
-    setOutputDevice(mPrimaryOutput, newDevice, force, delayMs);
+    setOutputDevice(mPrimaryOutput, newDevice, true, delayMs);
 
     // if entering in call state, handle special case of active streams
     // pertaining to sonification strategy see handleIncallSonification()
