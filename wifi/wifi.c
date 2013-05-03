@@ -1024,7 +1024,11 @@ int wifi_connect_to_hostapd()
     /* Clear out any stale socket files that might be left over. */
     wifi_wpa_ctrl_cleanup();
 
-    property_get("ap.interface", ifname, "");
+    /* For connection with the ctrl_interface of hostap daemon,
+       the fixed value of socket name needs to be defined. And We will
+       use "wpa_wlan1" as socket name for hostap daemon while
+       supplicant uses "wpa_wlan0" for this  */
+    strcpy(ifname, "wlan1");
 
     ctrl_conn[index] = wpa_ctrl_open(ifname);
     if (ctrl_conn[index] == NULL) {
