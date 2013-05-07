@@ -1578,19 +1578,15 @@ status_t AudioPolicyManagerBase::dump(int fd)
     return NO_ERROR;
 }
 
-bool AudioPolicyManagerBase::isOffloadSupported(uint32_t format,
-                                    audio_stream_type_t stream,
-                                    uint32_t samplingRate,
-                                    uint32_t bitRate,
-                                    int64_t duration,
-                                    int sessionId,
-                                    bool isVideo,
-                                    bool isStreaming)
+bool AudioPolicyManagerBase::isOffloadSupported(
+                        const audio_offload_info_t *config)
 {
-    ALOGV("isOffloadSupported: format=%d,"
+    ALOGV("isOffloadSupported: format=%x,"
          "stream=%x, sampRate %d, bitRate %d,"
          "durt %lld, sessionId %d, isVideo %d, isStreaming %d",
-         format, stream, samplingRate, bitRate, duration, sessionId, (int)isVideo, (int)isStreaming);
+         config->format, config->stream_type,
+         config->sample_rate, config->bit_rate, config->duration_us,
+         config->sessionId, config->has_video, config->is_streaming);
     // lpa.tunnelling.enable is used for testing. Should be 1 for normal operation
     bool useLPA = false;
     char value[PROPERTY_VALUE_MAX];
@@ -1604,12 +1600,12 @@ bool AudioPolicyManagerBase::isOffloadSupported(uint32_t format,
     }
 
     // If stream is not music or one of offload supported format, return false
-    if (stream != AUDIO_STREAM_MUSIC ) {
+    if (config->stream_type != AUDIO_STREAM_MUSIC ) {
         ALOGV("isOffloadSupported: return false as stream!=Music");
         return false;
     }
     // The LPE Music offload output is not free, return PCM
-    if ((mMusicOffloadOutput) && (sessionId != mMusicOffloadSessionId)) {
+    if ((mMusicOffloadOutput) && (config->sessionId != mMusicOffloadSessionId)) {
         ALOGV("isOffloadSupported: mMusicOffloadOutput = %d", mMusicOffloadOutput);
         ALOGV("isOffloadSupported: Already offload in progress, use non offload decoding");
         return false;
@@ -1618,32 +1614,32 @@ bool AudioPolicyManagerBase::isOffloadSupported(uint32_t format,
     //If duration is less than minimum value defined in property, return false
     char durValue[PROPERTY_VALUE_MAX];
     if (property_get("offload.min.file.duration.secs", durValue, "0")) {
-        if (duration < (atoi(durValue) * 1000000 )) {
+        if (config->duration_us < (atoi(durValue) * 1000000 )) {
             ALOGV("Property set to %s and it is too short for offload", durValue);
             return false;
         }
-    } else if (duration < (OFFLOAD_MIN_FILE_DURATION * 1000000 )) {
+    } else if (config->duration_us < (OFFLOAD_MIN_FILE_DURATION * 1000000 )) {
         ALOGV("isOffloadSupported: File duration is too short for offload");
         return false;
     }
 
-    if ((isVideo) || (isStreaming)) {
+    if ((config->has_video) || (config->is_streaming)) {
         ALOGV("isOffloadSupported: Video or stream is enabled, returning false");
         return false;
     }
 
     // If format is not supported by LPE Music offload output, return PCM (IA-Decode)
-    switch (format){
+    switch (config->format){
         case AUDIO_FORMAT_MP3:
         case AUDIO_FORMAT_AAC:
             break;
         default:
-            ALOGV("isOffloadSupported: return false as unsupported format= %x", format);
+            ALOGV("isOffloadSupported: return false as unsupported format= %x", config->format);
             return false;
     }
 
     // If output device != SPEAKER or HEADSET/HEADPHONE, make it as IA-decoding option
-    routing_strategy strategy = getStrategy((AudioSystem::stream_type)stream);
+    routing_strategy strategy = getStrategy((AudioSystem::stream_type)config->stream_type);
     uint32_t device = getDeviceForStrategy(strategy, true /* from cache */);
 
     if ((device & AUDIO_DEVICE_OUT_NON_OFFLOAD) ||
@@ -1658,7 +1654,7 @@ bool AudioPolicyManagerBase::isOffloadSupported(uint32_t format,
         return false;
     }
 
-    ALOGD("isOffloadSupported: Return true with supported format=%x", format);
+    ALOGD("isOffloadSupported: Return true with supported format=%x", config->format);
     return true;
 }
 // ----------------------------------------------------------------------------
