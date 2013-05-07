@@ -143,14 +143,7 @@ public:
 
         virtual status_t dump(int fd);
 
-        virtual bool isOffloadSupported(uint32_t format,
-                                         audio_stream_type_t stream,
-                                         uint32_t samplingRate,
-                                         uint32_t bitRate,
-                                         int64_t duration,
-                                         int sessionId,
-                                         bool hasVideo = false,
-                                         bool hasStreaming = false);
+        virtual bool isOffloadSupported(const audio_offload_info_t *config);
 
 protected:
 
