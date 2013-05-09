@@ -2884,7 +2884,7 @@ uint32_t AudioPolicyManagerBase::setOutputDevice(audio_io_handle_t output,
 
 #ifdef BGM_ENABLED
      // force the routing if BGM state is on
-    if ((mIsBGMEnabled) && (output != mBGMOutput) &&
+    if ( !isInCall() && (mIsBGMEnabled) && (output != mBGMOutput) &&
         !(device & AUDIO_DEVICE_OUT_REMOTE_BGM_SINK)) {
           device = getDeviceForStrategy(STRATEGY_BACKGROUND_MUSIC, false /*fromCache*/);
           ALOGD("[BGMUSIC] BGM is ON, return new device for music =  %x",device);
