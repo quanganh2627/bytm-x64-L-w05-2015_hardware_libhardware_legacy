@@ -80,6 +80,10 @@ static char primary_iface[PROPERTY_VALUE_MAX];
 #define WIFI_DRIVER_FW_PATH_PARAM	"/sys/module/wlan/parameters/fwpath"
 #endif
 
+#define WIFI_MODULE_43241_OPMODE	"/sys/module/bcm43241/parameters/op_mode"
+#define WIFI_MODULE_4334_OPMODE		"/sys/module/bcm4334/parameters/op_mode"
+#define WIFI_MODULE_4335_OPMODE		"/sys/module/bcm4335/parameters/op_mode"
+
 #define WIFI_DRIVER_LOADER_DELAY	1000000
 
 static const char IFACE_DIR[]           = "/data/system/wpa_supplicant";
@@ -935,6 +939,12 @@ const char *wifi_get_fw_path(int fw_type)
     return NULL;
 }
 
+static int file_exist(char *filename)
+{
+    struct stat buffer;
+    return (stat(filename, &buffer) == 0);
+}
+
 static int write_to_file(const char *path, const char *data, size_t len)
 {
     int ret = 0;
@@ -995,15 +1005,16 @@ int wifi_switch_driver_mode(int mode)
 	return -EINVAL;
     }
 
-    property_get(BCM_PROP_CHIP, bcm_prop_chip, "");
-    if(strlen(bcm_prop_chip)) {
-      char file_to_write[4096]="";
-      sprintf(file_to_write,"/sys/module/bcm%s/parameters/op_mode",bcm_prop_chip);
-      return write_to_file(file_to_write,mode_str, strlen(mode_str));
-    }
+    ALOGE("wifi_switch_driver_mode:  %s switching FW opmode", BCM_PROP_CHIP);
+    if (file_exist(WIFI_MODULE_43241_OPMODE))
+        return write_to_file(WIFI_MODULE_43241_OPMODE, mode_str, strlen(mode_str));
+    else if (file_exist(WIFI_MODULE_4334_OPMODE))
+        return write_to_file(WIFI_MODULE_4334_OPMODE, mode_str, strlen(mode_str));
+    else if (file_exist(WIFI_MODULE_4335_OPMODE))
+        return write_to_file(WIFI_MODULE_4335_OPMODE, mode_str, strlen(mode_str));
     else {
-      ALOGE("wifi_switch_driver_mode: error! %s property is empty", BCM_PROP_CHIP);
-      return -1;
+        ALOGE("wifi_switch_driver_mode: failed to switch opmode file not found");
+        return -1;
     }
 }
 
