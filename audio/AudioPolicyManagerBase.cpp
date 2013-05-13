@@ -57,6 +57,7 @@ bool AudioPolicyManagerBase::mIsDirectOutputActive;
 bool AudioPolicyManagerBase::IsBackgroundMusicSupported(AudioSystem::stream_type stream) {
 
     String8 reply;
+    String8 reply2;
     char* isBGMEnabledValue;
 
     //check whether BGM state is set only if the BGM device is available
@@ -66,15 +67,13 @@ bool AudioPolicyManagerBase::IsBackgroundMusicSupported(AudioSystem::stream_type
        isBGMEnabledValue = strpbrk((char *)reply.string(), "=");
        ++isBGMEnabledValue;
        mIsBGMEnabled = strcmp(isBGMEnabledValue,"true") ? false : true;
-    }
 
-    {
        char* isBGMAudioActive;
        bool IsBGMAudioavailable;
        char* isBGMAudioValue;
-       reply = mpClientInterface->getParameters(0, String8(AUDIO_PARAMETER_VALUE_REMOTE_BGM_AUDIO));
-       ALOGVV("%s isBGMAudioActive = %s",__func__,reply.string());
-       isBGMAudioValue = strpbrk((char *)reply.string(), "=");
+       reply2 = mpClientInterface->getParameters(0, String8(AUDIO_PARAMETER_VALUE_REMOTE_BGM_AUDIO));
+       ALOGVV("%s isBGMAudioActive = %s",__func__,reply2.string());
+       isBGMAudioValue = strpbrk((char *)reply2.string(), "=");
        ++isBGMAudioValue;
        IsBGMAudioavailable = strcmp(isBGMAudioValue,"true") ? false : true;
        ALOGV("%s IsBGMAudioavailable = %d",__func__,IsBGMAudioavailable);
