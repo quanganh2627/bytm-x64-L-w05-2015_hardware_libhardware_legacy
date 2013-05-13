@@ -998,15 +998,6 @@ status_t AudioPolicyManagerBase::stopOutput(audio_io_handle_t output,
        ALOGD("stopoutput() Direct thread is stopped -inactive");
        mIsDirectOutputActive = false;
     }
-#ifndef MRFLD_AUDIO
-    if(outputDesc->mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD){
-
-       // Informs primary HAL that a compressed output stops
-       AudioParameter param;
-       param.addInt(String8(AudioParameter::keyStreamFlags), AUDIO_OUTPUT_FLAG_NONE);
-       mpClientInterface->setParameters(0, param.toString(), 0);
-    }
-#endif
 
     // handle special case for sonification while in call
     if (isInCall()) {
@@ -1014,6 +1005,17 @@ status_t AudioPolicyManagerBase::stopOutput(audio_io_handle_t output,
     }
 
     if (outputDesc->mRefCount[stream] > 0) {
+
+#ifndef MRFLD_AUDIO
+        if (outputDesc->mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) {
+
+           // Informs primary HAL that a compressed output stops
+           AudioParameter param;
+           param.addInt(String8(AudioParameter::keyStreamFlags), AUDIO_OUTPUT_FLAG_NONE);
+           mpClientInterface->setParameters(0, param.toString(), 0);
+        }
+#endif
+
         // decrement usage count of this stream on the output
         outputDesc->changeRefCount(stream, -1);
         // store time at which the stream was stopped - see isStreamActive()
