@@ -1029,11 +1029,13 @@ status_t AudioPolicyManagerBase::stopOutput(audio_io_handle_t output,
             // audio path (audio DSP, CODEC ...)
             setOutputDevice(output, newDevice, false, outputDesc->mLatency*2);
             // force restoring the device selection on other active outputs if it differs from the
-            // one being selected for this output
-            for (size_t i = 0; i < mOutputs.size(); i++) {
-                audio_io_handle_t curOutput = mOutputs.keyAt(i);
-                AudioOutputDescriptor *desc = mOutputs.valueAt(i);
-                if (curOutput != output &&
+            // one being selected for this output if there are no other streams present in this output.
+
+            if (outputDesc->refCount()== 0) {
+                for (size_t i = 0; i < mOutputs.size(); i++) {
+                    audio_io_handle_t curOutput = mOutputs.keyAt(i);
+                    AudioOutputDescriptor *desc = mOutputs.valueAt(i);
+                    if (curOutput != output &&
                         desc->refCount() != 0 &&
                         ((desc->mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) || outputDesc->sharesHwModuleWith(desc)) &&
                         newDevice != desc->device()) {
@@ -1041,6 +1043,7 @@ status_t AudioPolicyManagerBase::stopOutput(audio_io_handle_t output,
                                     getNewDevice(curOutput, false /*fromCache*/),
                                     true,
                                     outputDesc->mLatency*2);
+                    }
                 }
             }
             // update the outputs if stopping one with a stream that can affect notification routing
