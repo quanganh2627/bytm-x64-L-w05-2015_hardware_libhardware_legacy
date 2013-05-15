@@ -1089,11 +1089,12 @@ status_t AudioPolicyManagerBase::stopOutput(audio_io_handle_t output,
             setOutputDevice(output, newDevice, false, outputDesc->mLatency*2);
 
             // force restoring the device selection on other active outputs if it differs from the
-            // one being selected for this output
-            for (size_t i = 0; i < mOutputs.size(); i++) {
-                audio_io_handle_t curOutput = mOutputs.keyAt(i);
-                AudioOutputDescriptor *desc = mOutputs.valueAt(i);
-                if (curOutput != output &&
+            // one being selected for this output if there are no other streams present in this output.
+            if (outputDesc->isActive()) {
+                for (size_t i = 0; i < mOutputs.size(); i++) {
+                    audio_io_handle_t curOutput = mOutputs.keyAt(i);
+                    AudioOutputDescriptor *desc = mOutputs.valueAt(i);
+                    if (curOutput != output &&
                         desc->isActive() &&
                         ((desc->mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) || outputDesc->sharesHwModuleWith(desc)) &&
                         newDevice != desc->device()) {
@@ -1101,6 +1102,7 @@ status_t AudioPolicyManagerBase::stopOutput(audio_io_handle_t output,
                                     getNewDevice(curOutput, false /*fromCache*/),
                                     true,
                                     outputDesc->mLatency*2);
+                    }
                 }
             }
             // update the outputs if stopping one with a stream that can affect notification routing
@@ -2935,10 +2937,8 @@ uint32_t AudioPolicyManagerBase::checkDeviceMuteStrategies(AudioOutputDescriptor
 
     uint32_t muteWaitMs = 0;
     audio_devices_t device = outputDesc->device();
-
-    bool shouldMute = ((outputDesc->mId == mPrimaryOutput) ||
-                       (outputDesc->mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD))
-                       && (outputDesc->refCount() != 0)
+    bool shouldMute = (outputDesc->mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD)
+                       && (outputDesc->isActive())
                        && (AudioSystem::popCount(device) >= 2);
 
     // temporary mute output if device selection changes to avoid volume bursts due to
