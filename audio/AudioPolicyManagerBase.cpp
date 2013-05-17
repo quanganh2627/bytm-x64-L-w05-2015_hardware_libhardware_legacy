@@ -764,6 +764,14 @@ audio_io_handle_t AudioPolicyManagerBase::getOutput(AudioSystem::stream_type str
         addOutput(output, outputDesc);
         if (outputDesc->mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) {
             mMusicOffloadOutput = true;
+
+#ifdef MRFLD_AUDIO
+            // Informs primary HAL that a compressed output will be started
+            AudioParameter param;
+            param.addInt(String8(AudioParameter::keyStreamFlags),
+                         AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD);
+            mpClientInterface->setParameters(0, param.toString(), 0);
+#endif
         }
         ALOGV("getOutput() returns direct output %d", output);
         return output;
@@ -909,13 +917,14 @@ status_t AudioPolicyManagerBase::startOutput(audio_io_handle_t output,
        ALOGD("startoutput() Direct thread is active for 0x%x channels",outputDesc->mChannelMask);
        mIsDirectOutputActive = true;
     }
-
     if (outputDesc->mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) {
 
+#ifndef MRFLD_AUDIO
        // Informs primary HAL that a compressed output will be started
        AudioParameter param;
        param.addInt(String8(AudioParameter::keyStreamFlags), AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD);
        mpClientInterface->setParameters(0, param.toString(), 0);
+#endif
        // Stores the current audio sessionId for use in gapless offlaoded playback.
        mMusicOffloadSessionId = session;
     }
@@ -990,7 +999,7 @@ status_t AudioPolicyManagerBase::stopOutput(audio_io_handle_t output,
        ALOGD("stopoutput() Direct thread is stopped -inactive");
        mIsDirectOutputActive = false;
     }
-
+#ifndef MRFLD_AUDIO
     if(outputDesc->mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD){
 
        // Informs primary HAL that a compressed output stops
@@ -998,6 +1007,7 @@ status_t AudioPolicyManagerBase::stopOutput(audio_io_handle_t output,
        param.addInt(String8(AudioParameter::keyStreamFlags), AUDIO_OUTPUT_FLAG_NONE);
        mpClientInterface->setParameters(0, param.toString(), 0);
     }
+#endif
 
     // handle special case for sonification while in call
     if (isInCall()) {
@@ -1079,6 +1089,12 @@ void AudioPolicyManagerBase::releaseOutput(audio_io_handle_t output)
 
         AudioOutputDescriptor *outputDesc = mOutputs.valueAt(index);
 
+#ifdef MRFLD_AUDIO
+            // Informs primary HAL that a compressed output stops
+            AudioParameter param;
+            param.addInt(String8(AudioParameter::keyStreamFlags), AUDIO_OUTPUT_FLAG_NONE);
+            mpClientInterface->setParameters(0, param.toString(), 0);
+#endif
         // Close offload output only if ref count is zero.
         if (outputDesc->refCount() == 0) {
             ALOGV("releaseOutput: closing output");
@@ -1227,7 +1243,8 @@ status_t AudioPolicyManagerBase::stopInput(audio_io_handle_t input)
         return INVALID_OPERATION;
     } else {
         AudioParameter param = AudioParameter();
-        param.addInt(String8(AudioParameter::keyRouting), 0);
+        // AUDIO_DEVICE_BIT_IN value allows to stop any audio input stream
+        param.addInt(String8(AudioParameter::keyRouting), AUDIO_DEVICE_BIT_IN);
         mpClientInterface->setParameters(input, param.toString());
         inputDesc->mRefCount = 0;
         return NO_ERROR;
@@ -2883,7 +2900,7 @@ uint32_t AudioPolicyManagerBase::setOutputDevice(audio_io_handle_t output,
 
 #ifdef BGM_ENABLED
      // force the routing if BGM state is on
-    if ((mIsBGMEnabled) && (output != mBGMOutput) &&
+    if ( !isInCall() && (mIsBGMEnabled) && (output != mBGMOutput) &&
         !(device & AUDIO_DEVICE_OUT_REMOTE_BGM_SINK)) {
           device = getDeviceForStrategy(STRATEGY_BACKGROUND_MUSIC, false /*fromCache*/);
           ALOGD("[BGMUSIC] BGM is ON, return new device for music =  %x",device);
@@ -3374,7 +3391,15 @@ status_t AudioPolicyManagerBase::checkAndSetVolume(int stream,
         if (stream == AudioSystem::BLUETOOTH_SCO) {
             mpClientInterface->setStreamVolume(AudioSystem::VOICE_CALL, volume, output, delayMs);
         }
+#ifdef BGM_ENABLED
+        if ((IsBackgroundMusicSupported((AudioSystem::stream_type)stream)) &&
+            (mBGMOutput) && (device & AUDIO_DEVICE_OUT_REMOTE_BGM_SINK)) {
+            ALOGD("[BGMUSIC] DO NOT APPLY VOLUME for BGM SINK");
+        } else
+            mpClientInterface->setStreamVolume((AudioSystem::stream_type)stream, volume, output, delayMs);
+#else
         mpClientInterface->setStreamVolume((AudioSystem::stream_type)stream, volume, output, delayMs);
+#endif //BGM_ENABLED
     }
 
     if (stream == AudioSystem::VOICE_CALL ||

@@ -1167,7 +1167,7 @@ int wifi_switch_driver_mode(int mode)
 	break;
     default:
 	ALOGE("wifi_switch_driver_mode: invalid mode %ud", mode);
-	break;
+	return -EINVAL;
     }
 
     property_get(BCM_PROP_CHIP, bcm_prop_chip, "");
