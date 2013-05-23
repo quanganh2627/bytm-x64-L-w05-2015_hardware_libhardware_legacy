@@ -164,7 +164,14 @@ public:
 
     //Check if offload is possible for given sample rate, bitrate, duration, video file
     //streaming and audio policy.
-    virtual bool isOffloadSupported(const audio_offload_info_t *config) = 0;
+    virtual bool isOffloadSupported(uint32_t format,
+                                    audio_stream_type_t stream,
+                                    uint32_t samplingRate,
+                                    uint32_t bitRate,
+                                    int64_t duration,
+                                    int sessionId,
+                                    bool isVideo = false,
+                                    bool isStreaming = false) = 0;
 };
 
 
