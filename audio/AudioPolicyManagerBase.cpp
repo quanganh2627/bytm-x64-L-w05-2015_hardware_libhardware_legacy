@@ -504,6 +504,16 @@ AudioSystem::forced_config AudioPolicyManagerBase::getForceUse(AudioSystem::forc
 void AudioPolicyManagerBase::setSystemProperty(const char* property, const char* value)
 {
     ALOGV("setSystemProperty() property %s, value %s", property, value);
+    if (strcmp(property, "ro.camera.sound.forced") == 0) {
+        if (atoi(value)) {
+            ALOGV("ENFORCED_AUDIBLE cannot be muted");
+            mStreams[AudioSystem::ENFORCED_AUDIBLE].mCanBeMuted = false;
+        } else {
+            ALOGV("ENFORCED_AUDIBLE can be muted");
+            mStreams[AudioSystem::ENFORCED_AUDIBLE].mCanBeMuted = true;
+        }
+    }
+
 }
 
 // Find a direct output profile compatible with the parameters passed, even if the input flags do
