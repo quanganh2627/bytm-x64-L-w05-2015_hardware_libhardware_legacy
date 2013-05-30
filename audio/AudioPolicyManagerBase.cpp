@@ -247,6 +247,10 @@ status_t AudioPolicyManagerBase::setDeviceConnectionState(audio_devices_t device
             return BAD_VALUE;
         }
 
+        /*set the direct output thread flag to false always. It will be
+          reset when the stream is started*/
+        mIsDirectOutputActive =  false;
+
         checkA2dpSuspend();
         checkOutputForAllStrategies();
         // outputs must be closed after checkOutputForAllStrategies() is executed
@@ -1002,7 +1006,7 @@ status_t AudioPolicyManagerBase::stopOutput(audio_io_handle_t output,
     AudioOutputDescriptor *outputDesc = mOutputs.valueAt(index);
 
     if((outputDesc->mFlags & AudioSystem::OUTPUT_FLAG_DIRECT) && (mAvailableOutputDevices & AudioSystem::DEVICE_OUT_AUX_DIGITAL)){
-       ALOGD("startoutput() Direct thread is stopped -inactive");
+       ALOGD("stopoutput() Direct thread is stopped -inactive");
        mIsDirectOutputActive = false;
     }
 
@@ -2310,6 +2314,9 @@ void AudioPolicyManagerBase::closeOutput(audio_io_handle_t output)
             mOutputs.removeItem(duplicatedOutput);
         }
     }
+
+    mIsDirectOutputActive =  false;
+    ALOGV("closeOtput: mIsDirectOutputActive = %d",mIsDirectOutputActive);
 
     AudioParameter param;
     param.add(String8("closing"), String8("true"));
