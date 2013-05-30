@@ -531,7 +531,14 @@ AudioPolicyManagerBase::IOProfile *AudioPolicyManagerBase::getProfileForDirectOu
         }
         for (size_t j = 0; j < mHwModules[i]->mOutputProfiles.size(); j++) {
            IOProfile *profile = mHwModules[i]->mOutputProfiles[j];
-           if (profile->isCompatibleProfile(device, samplingRate, format,
+           if((channelMask <= AUDIO_CHANNEL_OUT_STEREO) &&
+                    (device == AudioSystem::DEVICE_OUT_AUX_DIGITAL)){
+              /*Direct output is selected only for multichannel content over HDMI
+                NOTE - if stereo contents needs direct thread over HDMI; this condition
+                       needs to be removed*/
+              ALOGI("make direct output unavaiable for stereo clips");
+              return 0;
+           }else if (profile->isCompatibleProfile(device, samplingRate, format,
                                            channelMask,
                                            AUDIO_OUTPUT_FLAG_DIRECT)) {
                if (mAvailableOutputDevices & profile->mSupportedDevices) {
@@ -738,6 +745,20 @@ status_t AudioPolicyManagerBase::startOutput(audio_io_handle_t output,
 
     if((outputDesc->mFlags & AudioSystem::OUTPUT_FLAG_DIRECT) && (mAvailableOutputDevices & AudioSystem::DEVICE_OUT_AUX_DIGITAL)){
        ALOGD("startoutput() Direct thread is active");
+       mIsDirectOutputActive = true;
+    }
+
+
+    if (outputDesc->mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) {
+
+       // Informs primary HAL that a compressed output will be started
+       AudioParameter param;
+       param.addInt(String8(AudioParameter::keyStreamFlags), AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD);
+       mpClientInterface->setParameters(0, param.toString(), 0);
+    }
+    if((outputDesc->mFlags & AudioSystem::OUTPUT_FLAG_DIRECT) && (mAvailableOutputDevices & AudioSystem::DEVICE_OUT_AUX_DIGITAL)
+        && (outputDesc->mChannelMask != AUDIO_CHANNEL_OUT_STEREO)){
+       ALOGD("startoutput() Direct thread is active for 0x%x channels",outputDesc->mChannelMask);
        mIsDirectOutputActive = true;
     }
 
