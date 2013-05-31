@@ -315,13 +315,21 @@ static int ap_dump(const struct audio_policy *pol, int fd)
 }
 
 static bool ap_is_offload_supported(struct audio_policy *pol,
-                                   const audio_offload_info_t *config)
+                                   uint32_t format,
+                                   audio_stream_type_t stream,
+                                   uint32_t samplingRate,
+                                   uint32_t bitRate,
+                                   int64_t duration,
+                                   int sessionId,
+                                   bool isVideo,
+                                   bool isStreaming)
 {
     ALOGV("ap_is_offload_supported");
     struct legacy_audio_policy *lap = to_lap(pol);
 
     ALOGV("%s: tid %d", __func__, gettid());
-    return lap->apm->isOffloadSupported(config);
+    return lap->apm->isOffloadSupported(format, stream,
+                       samplingRate, bitRate, duration, sessionId, isVideo, isStreaming);
 }
 
 static int create_legacy_ap(const struct audio_policy_device *device,

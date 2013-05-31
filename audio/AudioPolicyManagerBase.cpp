@@ -998,15 +998,6 @@ status_t AudioPolicyManagerBase::stopOutput(audio_io_handle_t output,
        ALOGD("stopoutput() Direct thread is stopped -inactive");
        mIsDirectOutputActive = false;
     }
-#ifndef MRFLD_AUDIO
-    if(outputDesc->mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD){
-
-       // Informs primary HAL that a compressed output stops
-       AudioParameter param;
-       param.addInt(String8(AudioParameter::keyStreamFlags), AUDIO_OUTPUT_FLAG_NONE);
-       mpClientInterface->setParameters(0, param.toString(), 0);
-    }
-#endif
 
     // handle special case for sonification while in call
     if (isInCall()) {
@@ -1014,6 +1005,17 @@ status_t AudioPolicyManagerBase::stopOutput(audio_io_handle_t output,
     }
 
     if (outputDesc->mRefCount[stream] > 0) {
+
+#ifndef MRFLD_AUDIO
+        if (outputDesc->mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) {
+
+           // Informs primary HAL that a compressed output stops
+           AudioParameter param;
+           param.addInt(String8(AudioParameter::keyStreamFlags), AUDIO_OUTPUT_FLAG_NONE);
+           mpClientInterface->setParameters(0, param.toString(), 0);
+        }
+#endif
+
         // decrement usage count of this stream on the output
         outputDesc->changeRefCount(stream, -1);
         // store time at which the stream was stopped - see isStreamActive()
@@ -1578,15 +1580,19 @@ status_t AudioPolicyManagerBase::dump(int fd)
     return NO_ERROR;
 }
 
-bool AudioPolicyManagerBase::isOffloadSupported(
-                        const audio_offload_info_t *config)
+bool AudioPolicyManagerBase::isOffloadSupported(uint32_t format,
+                                    audio_stream_type_t stream,
+                                    uint32_t samplingRate,
+                                    uint32_t bitRate,
+                                    int64_t duration,
+                                    int sessionId,
+                                    bool isVideo,
+                                    bool isStreaming)
 {
-    ALOGV("isOffloadSupported: format=%x,"
+    ALOGV("isOffloadSupported: format=%d,"
          "stream=%x, sampRate %d, bitRate %d,"
          "durt %lld, sessionId %d, isVideo %d, isStreaming %d",
-         config->format, config->stream_type,
-         config->sample_rate, config->bit_rate, config->duration_us,
-         config->sessionId, config->has_video, config->is_streaming);
+         format, stream, samplingRate, bitRate, duration, sessionId, (int)isVideo, (int)isStreaming);
     // lpa.tunnelling.enable is used for testing. Should be 1 for normal operation
     bool useLPA = false;
     char value[PROPERTY_VALUE_MAX];
@@ -1600,12 +1606,12 @@ bool AudioPolicyManagerBase::isOffloadSupported(
     }
 
     // If stream is not music or one of offload supported format, return false
-    if (config->stream_type != AUDIO_STREAM_MUSIC ) {
+    if (stream != AUDIO_STREAM_MUSIC ) {
         ALOGV("isOffloadSupported: return false as stream!=Music");
         return false;
     }
     // The LPE Music offload output is not free, return PCM
-    if ((mMusicOffloadOutput) && (config->sessionId != mMusicOffloadSessionId)) {
+    if ((mMusicOffloadOutput) && (sessionId != mMusicOffloadSessionId)) {
         ALOGV("isOffloadSupported: mMusicOffloadOutput = %d", mMusicOffloadOutput);
         ALOGV("isOffloadSupported: Already offload in progress, use non offload decoding");
         return false;
@@ -1614,32 +1620,32 @@ bool AudioPolicyManagerBase::isOffloadSupported(
     //If duration is less than minimum value defined in property, return false
     char durValue[PROPERTY_VALUE_MAX];
     if (property_get("offload.min.file.duration.secs", durValue, "0")) {
-        if (config->duration_us < (atoi(durValue) * 1000000 )) {
+        if (duration < (atoi(durValue) * 1000000 )) {
             ALOGV("Property set to %s and it is too short for offload", durValue);
             return false;
         }
-    } else if (config->duration_us < (OFFLOAD_MIN_FILE_DURATION * 1000000 )) {
+    } else if (duration < (OFFLOAD_MIN_FILE_DURATION * 1000000 )) {
         ALOGV("isOffloadSupported: File duration is too short for offload");
         return false;
     }
 
-    if ((config->has_video) || (config->is_streaming)) {
+    if ((isVideo) || (isStreaming)) {
         ALOGV("isOffloadSupported: Video or stream is enabled, returning false");
         return false;
     }
 
     // If format is not supported by LPE Music offload output, return PCM (IA-Decode)
-    switch (config->format){
+    switch (format){
         case AUDIO_FORMAT_MP3:
         case AUDIO_FORMAT_AAC:
             break;
         default:
-            ALOGV("isOffloadSupported: return false as unsupported format= %x", config->format);
+            ALOGV("isOffloadSupported: return false as unsupported format= %x", format);
             return false;
     }
 
     // If output device != SPEAKER or HEADSET/HEADPHONE, make it as IA-decoding option
-    routing_strategy strategy = getStrategy((AudioSystem::stream_type)config->stream_type);
+    routing_strategy strategy = getStrategy((AudioSystem::stream_type)stream);
     uint32_t device = getDeviceForStrategy(strategy, true /* from cache */);
 
     if ((device & AUDIO_DEVICE_OUT_NON_OFFLOAD) ||
@@ -1654,7 +1660,7 @@ bool AudioPolicyManagerBase::isOffloadSupported(
         return false;
     }
 
-    ALOGD("isOffloadSupported: Return true with supported format=%x", config->format);
+    ALOGD("isOffloadSupported: Return true with supported format=%x", format);
     return true;
 }
 // ----------------------------------------------------------------------------
