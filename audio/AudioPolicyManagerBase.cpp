@@ -2621,6 +2621,8 @@ audio_devices_t AudioPolicyManagerBase::getDeviceForStrategy(routing_strategy st
                 if (device) break;
                 device = mAvailableOutputDevices & AUDIO_DEVICE_OUT_AUX_DIGITAL;
                 if (device) break;
+                device = mAvailableOutputDevices & AudioSystem::DEVICE_OUT_REMOTE_SUBMIX;
+                if (device) break;
                 device = mAvailableOutputDevices & AudioSystem::DEVICE_OUT_WIDI;
                 if (device) break;
                 device = mAvailableOutputDevices & AUDIO_DEVICE_OUT_ANLG_DOCK_HEADSET;
@@ -2651,6 +2653,8 @@ audio_devices_t AudioPolicyManagerBase::getDeviceForStrategy(routing_strategy st
                 device = mAvailableOutputDevices & AUDIO_DEVICE_OUT_DGTL_DOCK_HEADSET;
                 if (device) break;
                 device = mAvailableOutputDevices & AUDIO_DEVICE_OUT_AUX_DIGITAL;
+                if (device) break;
+                device = mAvailableOutputDevices & AudioSystem::DEVICE_OUT_REMOTE_SUBMIX;
                 if (device) break;
                 device = mAvailableOutputDevices & AudioSystem::DEVICE_OUT_WIDI;
                 if (device) break;
@@ -2704,6 +2708,8 @@ audio_devices_t AudioPolicyManagerBase::getDeviceForStrategy(routing_strategy st
            if (device2 == AUDIO_DEVICE_NONE)
                device2 = mAvailableOutputDevices &  AudioSystem::DEVICE_OUT_AUX_DIGITAL;
            if ((device2 == AUDIO_DEVICE_NONE) && (strategy != STRATEGY_SONIFICATION_LOCAL))
+               device2 = mAvailableOutputDevices & AudioSystem::DEVICE_OUT_REMOTE_SUBMIX;
+           if ((device2 == AUDIO_DEVICE_NONE) && (strategy != STRATEGY_SONIFICATION_LOCAL))
                device2 = mAvailableOutputDevices & AudioSystem::DEVICE_OUT_WIDI;
            ALOGV("[BGMUSIC] STRATEGY_MEDIA - force aux/widi always device = %x",device2);
         }
@@ -2738,6 +2744,9 @@ audio_devices_t AudioPolicyManagerBase::getDeviceForStrategy(routing_strategy st
         }
         if ((device2 == AUDIO_DEVICE_NONE) && (strategy != STRATEGY_SONIFICATION_LOCAL)) {
             device2 = mAvailableOutputDevices & AudioSystem::DEVICE_OUT_AUX_DIGITAL;
+        }
+        if ((device2 == AUDIO_DEVICE_NONE) && (strategy != STRATEGY_SONIFICATION_LOCAL)) {
+            device2 = mAvailableOutputDevices & AUDIO_DEVICE_OUT_REMOTE_SUBMIX;
         }
         if ((device2 == AUDIO_DEVICE_NONE) && (strategy != STRATEGY_SONIFICATION_LOCAL)) {
             device2 = mAvailableOutputDevices & AudioSystem::DEVICE_OUT_WIDI;
