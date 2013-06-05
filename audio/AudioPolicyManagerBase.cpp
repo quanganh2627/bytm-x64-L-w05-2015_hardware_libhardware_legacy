@@ -223,9 +223,8 @@ status_t AudioPolicyManagerBase::setDeviceConnectionState(audio_devices_t device
             // device, otherwise keep the flag to prioritize WIDI over BT A2DP
             if ((device == AudioSystem::DEVICE_OUT_WIRED_HEADSET) ||
                 (device == AudioSystem::DEVICE_OUT_WIRED_HEADPHONE)){
-                if (!isInCall() &&
-                    (mForceUse[AudioSystem::FOR_MEDIA] == AudioSystem::FORCE_NO_BT_A2DP) &&
-                    (getA2dpOutput() != 0) && !mA2dpSuspended &&
+                if ((mForceUse[AudioSystem::FOR_MEDIA] == AudioSystem::FORCE_NO_BT_A2DP) &&
+                    (getA2dpOutput() != 0) &&
                     !(mAvailableOutputDevices & AudioSystem::DEVICE_OUT_WIDI)) {
                     ALOGD("Disabling priority over BT A2DP for MEDIA streams");
                     mForceUse[AudioSystem::FOR_MEDIA] = AudioSystem::FORCE_NONE;
