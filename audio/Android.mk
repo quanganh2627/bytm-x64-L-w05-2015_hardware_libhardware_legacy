@@ -95,7 +95,7 @@ LOCAL_SRC_FILES := \
 LOCAL_MODULE := audio.primary.default
 LOCAL_MODULE_PATH := $(TARGET_OUT_SHARED_LIBRARIES)/hw
 LOCAL_MODULE_TAGS := optional
-TARGET_ERROR_FLAGS += -Wno-non-virtual-dtor
+
 LOCAL_STATIC_LIBRARIES := libmedia_helper
 LOCAL_SHARED_LIBRARIES := \
     libcutils \
