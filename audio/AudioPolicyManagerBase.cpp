@@ -2476,7 +2476,15 @@ AudioPolicyManagerBase::routing_strategy AudioPolicyManagerBase::getStrategyforb
       default:
         ALOGVV("unsupported BGM strategy");
       } //switch
-    } //if
+    } else {
+        // if widi device is connected, alarm must be heard only in local
+        if(mAvailableOutputDevices & AudioSystem::DEVICE_OUT_WIDI) {
+           switch (stream) {
+           case AudioSystem::ALARM:
+              return STRATEGY_SONIFICATION_LOCAL;
+           } //switch
+        } //if
+    }
 
     return getStrategy(stream);
 }
