@@ -1685,12 +1685,9 @@ AudioPolicyManagerBase::AudioPolicyManagerBase(AudioPolicyClientInterface *clien
       mTotalEffectsMemory(0),
       mA2dpSuspended(false),
       mHasA2dp(false),
-      mHasUsb(false)
-#ifdef BGM_ENABLED
-      ,
+      mHasUsb(false),
       mIsBGMEnabled(false),
       mBGMOutput(0)
-#endif //BGM_ENABLED
 {
     mpClientInterface = clientInterface;
 
