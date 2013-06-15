@@ -1595,18 +1595,22 @@ bool AudioPolicyManagerBase::isOffloadSupported(uint32_t format,
          "stream=%x, sampRate %d, bitRate %d,"
          "durt %lld, sessionId %d, isVideo %d, isStreaming %d",
          format, stream, samplingRate, bitRate, duration, sessionId, (int)isVideo, (int)isStreaming);
-    // lpa.tunnelling.enable is used for testing. Should be 1 for normal operation
-    bool useLPA = false;
+    // lpa.tunnelling.enable is a system property that governs audio tunnelling
+    // lpa.vtunnelling.enable is a system property that governs audio tunnelling
+    // during AV playback
+    // Set for 1 for enabling, 0 for disabling
     char value[PROPERTY_VALUE_MAX];
-    if (property_get("lpa.tunnelling.enable", value, "0")) {
-        useLPA = (bool)atoi(value);
-    }
-
-    ALOGV("useLPA %i", useLPA);
-    if (!useLPA) {
+    if (!property_get("lpa.tunnelling.enable", value, "0") || (!(bool)atoi(value))) {
+        ALOGV("isOffloadSupported: LPA property not set to true");
         return false;
     }
 
+    if (isVideo) {
+        if(!property_get("lpa.vtunnelling.enable", value, "0") || (!(bool)atoi(value))) {
+            ALOGV("isOffloadSupported: AV file, LPA for video not true");
+            return false;
+        }
+    }
     // If stream is not music or one of offload supported format, return false
     if (stream != AUDIO_STREAM_MUSIC ) {
         ALOGV("isOffloadSupported: return false as stream!=Music");
@@ -1614,7 +1618,6 @@ bool AudioPolicyManagerBase::isOffloadSupported(uint32_t format,
     }
     // The LPE Music offload output is not free, return PCM
     if ((mMusicOffloadOutput) && (sessionId != mMusicOffloadSessionId)) {
-        ALOGV("isOffloadSupported: mMusicOffloadOutput = %d", mMusicOffloadOutput);
         ALOGV("isOffloadSupported: Already offload in progress, use non offload decoding");
         return false;
     }
@@ -1631,13 +1634,13 @@ bool AudioPolicyManagerBase::isOffloadSupported(uint32_t format,
         return false;
     }
 
-    if ((isVideo) || (isStreaming)) {
-        ALOGV("isOffloadSupported: Video or stream is enabled, returning false");
+    if (isStreaming) {
+        ALOGV("isOffloadSupported: streaming is enabled, returning false");
         return false;
     }
 
     // If format is not supported by LPE Music offload output, return PCM (IA-Decode)
-    switch (format){
+    switch (format) {
         case AUDIO_FORMAT_MP3:
         case AUDIO_FORMAT_AAC:
             break;
