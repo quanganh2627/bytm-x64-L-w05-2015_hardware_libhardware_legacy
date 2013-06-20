@@ -2476,15 +2476,15 @@ AudioPolicyManagerBase::routing_strategy AudioPolicyManagerBase::getStrategyforb
       default:
         ALOGVV("unsupported BGM strategy");
       } //switch
-    } else {
-        // if widi device is connected, alarm must be heard only in local
-        if(mAvailableOutputDevices & AudioSystem::DEVICE_OUT_WIDI) {
-           switch (stream) {
-           case AudioSystem::ALARM:
-              return STRATEGY_SONIFICATION_LOCAL;
-           } //switch
-        } //if
     }
+    // if widi device is connected, alarm must be heard only in local
+    // in all modes
+    if(mAvailableOutputDevices & AudioSystem::DEVICE_OUT_WIDI) {
+       switch (stream) {
+         case AudioSystem::ALARM:
+            return STRATEGY_SONIFICATION_LOCAL;
+       } //switch
+    } //if
 
     return getStrategy(stream);
 }
@@ -2703,7 +2703,7 @@ audio_devices_t AudioPolicyManagerBase::getDeviceForStrategy(routing_strategy st
         if (mIsBGMEnabled) {
            if (device2 == AUDIO_DEVICE_NONE)
                device2 = mAvailableOutputDevices &  AudioSystem::DEVICE_OUT_AUX_DIGITAL;
-           if (device2 == AUDIO_DEVICE_NONE)
+           if ((device2 == AUDIO_DEVICE_NONE) && (strategy != STRATEGY_SONIFICATION_LOCAL))
                device2 = mAvailableOutputDevices & AudioSystem::DEVICE_OUT_WIDI;
            ALOGV("[BGMUSIC] STRATEGY_MEDIA - force aux/widi always device = %x",device2);
         }
