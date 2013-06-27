@@ -529,7 +529,9 @@ protected:
         bool getCustomPropertyAsULong(const String8 &name, unsigned long &value) const;
         bool getCustomPropertyAsFloat(const String8 &name, float &value) const;
         bool getCustomPropertyAsBool(const String8 &name, bool &value) const;
- 
+
+        // check if stream is valid
+        static bool isStreamValid(AudioSystem::stream_type stream);
 
         AudioPolicyClientInterface *mpClientInterface;  // audio policy client interface
         audio_io_handle_t mPrimaryOutput;              // primary output handle
