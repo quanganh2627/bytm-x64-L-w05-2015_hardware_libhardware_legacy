@@ -553,6 +553,12 @@ AudioPolicyManagerBase::IOProfile *AudioPolicyManagerBase::getProfileForDirectOu
     return 0;
 }
 
+bool AudioPolicyManagerBase::isStreamValid(AudioSystem::stream_type stream)
+{
+    return ((AudioSystem::stream_type) 0 <= stream) &&
+        (stream < AudioSystem::NUM_STREAM_TYPES);
+}
+
 audio_io_handle_t AudioPolicyManagerBase::getOutput(AudioSystem::stream_type stream,
                                     uint32_t samplingRate,
                                     uint32_t format,
@@ -560,6 +566,12 @@ audio_io_handle_t AudioPolicyManagerBase::getOutput(AudioSystem::stream_type str
                                     AudioSystem::output_flags flags,
                                     const audio_offload_info_t *offloadInfo)
 {
+    ALOGI("APM: getOutput");
+
+    if (!isStreamValid(stream)) {
+        ALOGE("getOutput() invalid stream of type %d", stream);
+        return 0;
+    }
     audio_io_handle_t output = 0;
     uint32_t latency = 0;
     routing_strategy strategy = getStrategy((AudioSystem::stream_type)stream);
@@ -750,6 +762,12 @@ status_t AudioPolicyManagerBase::startOutput(audio_io_handle_t output,
                                              int session)
 {
     ALOGV("startOutput() output %d, stream %d, session %d", output, stream, session);
+
+    if (!isStreamValid(stream)) {
+        ALOGE("startOutput() invalid stream of type %d", stream);
+        return BAD_VALUE;
+    }
+
     ssize_t index = mOutputs.indexOfKey(output);
     if (index < 0) {
         ALOGW("startOutput() unknow output %d", output);
@@ -817,6 +835,11 @@ status_t AudioPolicyManagerBase::stopOutput(audio_io_handle_t output,
                                             int session)
 {
     ALOGV("stopOutput() output %d, stream %d, session %d", output, stream, session);
+    if (!isStreamValid(stream)) {
+        ALOGE("stopOutput() invalid stream of type %d", stream);
+        return BAD_VALUE;
+    }
+
     ssize_t index = mOutputs.indexOfKey(output);
     if (index < 0) {
         ALOGW("stopOutput() unknow output %d", output);
@@ -1094,6 +1117,12 @@ void AudioPolicyManagerBase::initStreamVolume(AudioSystem::stream_type stream,
                                             int indexMax)
 {
     ALOGV("initStreamVolume() stream %d, min %d, max %d", stream , indexMin, indexMax);
+
+    if (!isStreamValid(stream)) {
+        ALOGE("initStreamVolume() invalid stream of type %d", stream);
+        return;
+    }
+
     if (indexMin < 0 || indexMin >= indexMax) {
         ALOGW("initStreamVolume() invalid index limits for stream %d, min %d, max %d", stream , indexMin, indexMax);
         return;
@@ -1106,6 +1135,10 @@ status_t AudioPolicyManagerBase::setStreamVolumeIndex(AudioSystem::stream_type s
                                                       int index,
                                                       audio_devices_t device)
 {
+    if (!isStreamValid(stream)) {
+        ALOGE("setStreamVolumeIndex() invalid stream of type %d", stream);
+        return BAD_VALUE;
+    }
 
     if ((index < mStreams[stream].mIndexMin) || (index > mStreams[stream].mIndexMax)) {
         return BAD_VALUE;
@@ -1146,6 +1179,11 @@ status_t AudioPolicyManagerBase::getStreamVolumeIndex(AudioSystem::stream_type s
                                                       int *index,
                                                       audio_devices_t device)
 {
+    if (!isStreamValid(stream)) {
+        ALOGE("getStreamVolumeIndex() invalid stream of type %d", stream);
+        return BAD_VALUE;
+    }
+
     if (index == NULL) {
         return BAD_VALUE;
     }
