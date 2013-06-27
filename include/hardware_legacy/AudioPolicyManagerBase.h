@@ -529,7 +529,9 @@ protected:
         bool getCustomPropertyAsULong(const String8 &name, unsigned long &value) const;
         bool getCustomPropertyAsFloat(const String8 &name, float &value) const;
         bool getCustomPropertyAsBool(const String8 &name, bool &value) const;
- 
+
+        // check if stream is valid
+        static bool isStreamValid(AudioSystem::stream_type stream);
 
         AudioPolicyClientInterface *mpClientInterface;  // audio policy client interface
         audio_io_handle_t mPrimaryOutput;              // primary output handle
@@ -593,6 +595,7 @@ private:
         // updates device caching and output for streams that can influence the
         //    routing of notifications
         void handleNotificationRoutingForStream(AudioSystem::stream_type stream);
+
         static bool isVirtualInputDevice(audio_devices_t device);
         // Custom properties map
         DefaultKeyedVector<String8, String8> mCustomPropertiesMap;
