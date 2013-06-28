@@ -3517,21 +3517,21 @@ status_t AudioPolicyManagerBase::checkAndSetVolume(int stream,
     // - the force flag is set
     if (volume != mOutputs.valueFor(output)->mCurVolume[stream] ||
             force) {
-        mOutputs.valueFor(output)->mCurVolume[stream] = volume;
-        ALOGVV("checkAndSetVolume() for output %d stream %d, volume %f, delay %d", output, stream, volume, delayMs);
-        // Force VOICE_CALL to track BLUETOOTH_SCO stream volume when bluetooth audio is
-        // enabled
-        if (stream == AudioSystem::BLUETOOTH_SCO) {
-            mpClientInterface->setStreamVolume(AudioSystem::VOICE_CALL, volume, output, delayMs);
-        }
 #ifdef BGM_ENABLED
-        if ((IsBackgroundMusicSupported((AudioSystem::stream_type)stream)) &&
-            (mBGMOutput) && (device & AUDIO_DEVICE_OUT_REMOTE_BGM_SINK)) {
+        if (mIsBGMEnabled) {
             ALOGD("[BGMUSIC] DO NOT APPLY VOLUME for BGM SINK");
-        } else
+        } else {
+#endif //BGM_ENABLED
+            mOutputs.valueFor(output)->mCurVolume[stream] = volume;
+            ALOGVV("checkAndSetVolume() for output %d stream %d, volume %f, delay %d", output, stream, volume, delayMs);
+            // Force VOICE_CALL to track BLUETOOTH_SCO stream volume when bluetooth audio is
+            // enabled
+            if (stream == AudioSystem::BLUETOOTH_SCO) {
+                mpClientInterface->setStreamVolume(AudioSystem::VOICE_CALL, volume, output, delayMs);
+            }
             mpClientInterface->setStreamVolume((AudioSystem::stream_type)stream, volume, output, delayMs);
-#else
-        mpClientInterface->setStreamVolume((AudioSystem::stream_type)stream, volume, output, delayMs);
+#ifdef BGM_ENABLED
+        }
 #endif //BGM_ENABLED
     }
 
