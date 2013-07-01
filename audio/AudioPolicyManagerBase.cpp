@@ -3529,6 +3529,7 @@ status_t AudioPolicyManagerBase::checkAndSetVolume(int stream,
     if (mBGMOutput && IsBackgroundMusicSupported((AudioSystem::stream_type)stream)) {
        // get the newly forced sink
          audio_devices_t device2 = getDeviceForStrategy(STRATEGY_BACKGROUND_MUSIC, false /*fromCache*/);
+         index = mStreams[stream].getVolumeIndex(AudioSystem::DEVICE_OUT_WIDI);
          float volume = computeVolume(stream, index, device2);
          ALOGV("[BGMUSIC] compute volume for the forced active sink = %f for device %x",volume, device2);
          //apply the new volume for the primary output
