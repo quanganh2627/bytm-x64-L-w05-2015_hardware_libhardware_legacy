@@ -3772,7 +3772,7 @@ status_t AudioPolicyManagerBase::AudioOutputDescriptor::dump(int fd)
 AudioPolicyManagerBase::AudioInputDescriptor::AudioInputDescriptor(const IOProfile *profile)
     : mSamplingRate(0), mFormat((audio_format_t)0), mChannelMask((audio_channel_mask_t)0),
       mDevice(AUDIO_DEVICE_NONE), mRefCount(0),
-      mInputSource(0), mProfile(profile)
+      mInputSource(0), mProfile(profile), mHasStarted(0)
 {
 }
 
