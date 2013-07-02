@@ -298,6 +298,7 @@ protected:
             uint32_t mRefCount;                         // number of AudioRecord clients using this output
             int      mInputSource;                      // input source selected by application (mediarecorder.h)
             const IOProfile *mProfile;                  // I/O profile this output derives from
+            bool     mHasStarted;                       // to indicate that the audiorecord has started
         };
 
         // stream descriptor used for volume control
