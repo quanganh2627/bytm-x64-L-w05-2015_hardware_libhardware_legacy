@@ -92,6 +92,7 @@ static char primary_iface[PROPERTY_VALUE_MAX];
 
 #define WIFI_MODULE_43241_OPMODE	"/sys/module/bcm43241/parameters/op_mode"
 #define WIFI_MODULE_4334_OPMODE		"/sys/module/bcm4334/parameters/op_mode"
+#define WIFI_MODULE_4334X_OPMODE		"/sys/module/bcm4334x/parameters/op_mode"
 #define WIFI_MODULE_4335_OPMODE		"/sys/module/bcm4335/parameters/op_mode"
 
 #define WIFI_DRIVER_LOADER_DELAY	1000000
@@ -1218,6 +1219,8 @@ int wifi_switch_driver_mode(int mode)
         return write_to_file(WIFI_MODULE_43241_OPMODE, mode_str, strlen(mode_str));
     else if (file_exist(WIFI_MODULE_4334_OPMODE))
         return write_to_file(WIFI_MODULE_4334_OPMODE, mode_str, strlen(mode_str));
+    else if (file_exist(WIFI_MODULE_4334X_OPMODE))
+        return write_to_file(WIFI_MODULE_4334X_OPMODE, mode_str, strlen(mode_str));
     else if (file_exist(WIFI_MODULE_4335_OPMODE))
         return write_to_file(WIFI_MODULE_4335_OPMODE, mode_str, strlen(mode_str));
     else {
