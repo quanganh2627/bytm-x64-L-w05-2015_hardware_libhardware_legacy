@@ -22,195 +22,131 @@
  */
 static const char BCM_PROP_CHIP[]	= "wlan.bcm.chip";
 
-int is_wifi_driver_loaded() {
-    char driver_status[PROPERTY_VALUE_MAX];
-#ifdef WIFI_DRIVER_MODULE_PATH
-    FILE *proc;
-    char line[sizeof(DRIVER_MODULE_TAG)+10];
+#ifdef WIFI_GLUE_WITH_BCM
+#  include "vendors/bcm.h"
 #endif
+ 
+enum {
+    /* See X Macro trick on Wikipedia */
+#define WIFI_GLUE(Vendor, Ops...) VENDOR_ ## Vendor,
+#include "vendors/vendors.def"
+#undef WIFI_GLUE
+    MAX_VENDORS
+};
 
-    if (!property_get(DRIVER_PROP_NAME, driver_status, NULL)
-            || strcmp(driver_status, "ok") != 0) {
-        return 0;  /* driver not loaded */
-    }
-#ifdef WIFI_DRIVER_MODULE_PATH
-    /*
-     * If the property says the driver is loaded, check to
-     * make sure that the property setting isn't just left
-     * over from a previous manual shutdown or a runtime
-     * crash.
-     */
-    if ((proc = fopen(MODULE_FILE, "r")) == NULL) {
-        ALOGW("Could not open %s: %s", MODULE_FILE, strerror(errno));
-        property_set(DRIVER_PROP_NAME, "unloaded");
-        return 0;
-    }
-    while ((fgets(line, sizeof(line), proc)) != NULL) {
-        if (strncmp(line, DRIVER_MODULE_TAG, strlen(DRIVER_MODULE_TAG)) == 0) {
-            fclose(proc);
-            return 1;
-        }
-    }
-    fclose(proc);
-    property_set(DRIVER_PROP_NAME, "unloaded");
-    return 0;
-#else
-    return 1;
-#endif
-}
+struct wifi_glue_ops wops[MAX_VENDORS] = {
+    /* See X Macro trick on Wikipedia */
+#define WIFI_GLUE(Vendor, Load_driver, Unload_driver, Switch_mode, Change_fw, Get_fw, Is_loaded) \
+    [VENDOR_ ## Vendor] = {                                             \
+        .load_driver =  Load_driver,                                    \
+        .unload_driver = Unload_driver,                                 \
+        .switch_driver_mode = Switch_mode,                              \
+        .change_fw_path = Change_fw,                                    \
+        .get_fw_path = Get_fw,                                          \
+        .is_driver_loaded = Is_loaded                                   \
+    },
+#include "vendors/vendors.def"
+#undef WIFI_GLUE
+};
 
-int wifi_load_driver()
+static int wifi_get_vendor(void)
 {
-#ifdef WIFI_DRIVER_MODULE_PATH
-    char driver_status[PROPERTY_VALUE_MAX];
-    int count = 100; /* wait at most 20 seconds for completion */
+    char wifi_vendor[PROPERTY_VALUE_MAX];
 
-    if (is_wifi_driver_loaded()) {
-        return 0;
+    if (!property_get(VENDOR_PROP_NAME, wifi_vendor, NULL)) {
+        ALOGE("wifi_get_vendor: prop %s is not set!",
+              VENDOR_PROP_NAME);
+        return -ENODEV;
     }
 
-    if (insmod(DRIVER_MODULE_PATH, DRIVER_MODULE_ARG) < 0)
-        return -1;
+    /* See X Macro trick on Wikipedia */
+#define WIFI_GLUE(Vendor, Ops...)               \
+    if (strcasecmp(wifi_vendor, # Vendor) == 0) \
+        return VENDOR_ ## Vendor;
+#include "vendors/vendors.def"
+#undef WIFI_GLUE
 
-    if (strcmp(FIRMWARE_LOADER,"") == 0) {
-        property_set(DRIVER_PROP_NAME, "ok");
-    }
-    else {
-        property_set("ctl.start", FIRMWARE_LOADER);
-    }
-    sched_yield();
-    while (count-- > 0) {
-        if (property_get(DRIVER_PROP_NAME, driver_status, NULL)) {
-            if (strcmp(driver_status, "ok") == 0)
-                return 0;
-            else if (strcmp(DRIVER_PROP_NAME, "failed") == 0) {
-                wifi_unload_driver();
-                return -1;
-            }
-        }
-        usleep(200000);
-    }
-    property_set(DRIVER_PROP_NAME, "timeout");
-    wifi_unload_driver();
-    return -1;
-#else
-    property_set(DRIVER_PROP_NAME, "ok");
-    return 0;
-#endif
-}
-
-int wifi_unload_driver()
-{
-    usleep(200000); /* allow to finish interface down */
-#ifdef WIFI_DRIVER_MODULE_PATH
-    if (rmmod(DRIVER_MODULE_NAME) == 0) {
-        int count = 20; /* wait at most 10 seconds for completion */
-        while (count-- > 0) {
-            if (!is_wifi_driver_loaded())
-                break;
-            usleep(500000);
-        }
-        usleep(500000); /* allow card removal */
-        if (count) {
-            return 0;
-        }
-        return -1;
-    } else
-        return -1;
-#else
-    property_set(DRIVER_PROP_NAME, "unloaded");
-    return 0;
-#endif
-}
-
-const char *wifi_get_fw_path(int fw_type)
-{
-    char bcm_prop_chip[PROPERTY_VALUE_MAX];
-
-    switch (fw_type) {
-    case WIFI_GET_FW_PATH_STA:
-	if (property_get(BCM_PROP_CHIP, bcm_prop_chip, NULL)) {
-	    if (strstr(bcm_prop_chip, "43241"))
-		return WIFI_DRIVER_43241_FW_PATH_STA;
-	    else if (strstr(bcm_prop_chip, "4334"))
-		return WIFI_DRIVER_4334_FW_PATH_STA;
-	    else if (strstr(bcm_prop_chip, "4335"))
-		return WIFI_DRIVER_4335_FW_PATH_STA;
-	}
-	else
-	    return WIFI_DRIVER_FW_PATH_STA;
-    case WIFI_GET_FW_PATH_AP:
-	if (property_get(BCM_PROP_CHIP, bcm_prop_chip, NULL)) {
-	    if (strstr(bcm_prop_chip, "43241"))
-		return WIFI_DRIVER_43241_FW_PATH_AP;
-	    else if (strstr(bcm_prop_chip, "4334"))
-		return WIFI_DRIVER_4334_FW_PATH_AP;
-	    else if (strstr(bcm_prop_chip, "4335"))
-		return WIFI_DRIVER_4335_FW_PATH_AP;
-	}
-	else
-	    return WIFI_DRIVER_FW_PATH_AP;
-    case WIFI_GET_FW_PATH_P2P:
-	if (property_get(BCM_PROP_CHIP, bcm_prop_chip, NULL)) {
-	    if (strstr(bcm_prop_chip, "43241"))
-		return WIFI_DRIVER_43241_FW_PATH_P2P;
-	    else if (strstr(bcm_prop_chip, "4334"))
-		return WIFI_DRIVER_4334_FW_PATH_P2P;
-	    else if (strstr(bcm_prop_chip, "4335"))
-		return WIFI_DRIVER_4335_FW_PATH_P2P;
-	}
-	else
-	    return WIFI_DRIVER_FW_PATH_P2P;
-    default:
-	    ALOGE("Unknown firmware type (%d)", fw_type);
-    }
-
-    return NULL;
-}
-
-int wifi_change_fw_path(const char *fwpath)
-{
-    return write_to_file(WIFI_DRIVER_FW_PATH_PARAM,
-			 fwpath, strlen(fwpath) + 1);
+    ALOGE("wifi_get_vendor: Unknown vendor %s!", wifi_vendor);
+    return -ENODEV;
 }
 
 int wifi_switch_driver_mode(int mode)
 {
-    char mode_str[8];
-    char bcm_prop_chip[PROPERTY_VALUE_MAX]="";
+    unsigned int vendor = 0;
 
-    /**
-     * BIT(0), BIT(1),.. come from dhd.h in the driver code, and we need to
-     * stay aligned with their definition.
-     *
-     * TODO:
-     *   - Find a way to include dhd.h and use the values from there directly to
-     *     prevent any problems in future modifications of the ABI.
-     */
-    switch (mode) {
-    case WIFI_STA_MODE:
-	snprintf(mode_str, sizeof(mode_str), "%u\n", BIT(0) | BIT(2) | BIT(4));
-	break;
-    case WIFI_AP_MODE:
-	snprintf(mode_str, sizeof(mode_str), "%u\n", BIT(1));
-	break;
-    case WIFI_P2P_MODE:
-	snprintf(mode_str, sizeof(mode_str), "%u\n", BIT(2));
-	break;
-    default:
-	ALOGE("wifi_switch_driver_mode: invalid mode %ud", mode);
-	return -EINVAL;
-    }
+    vendor = wifi_get_vendor();
 
-    ALOGE("wifi_switch_driver_mode:  %s switching FW opmode", BCM_PROP_CHIP);
-    if (file_exist(WIFI_MODULE_43241_OPMODE))
-        return write_to_file(WIFI_MODULE_43241_OPMODE, mode_str, strlen(mode_str));
-    else if (file_exist(WIFI_MODULE_4334_OPMODE))
-        return write_to_file(WIFI_MODULE_4334_OPMODE, mode_str, strlen(mode_str));
-    else if (file_exist(WIFI_MODULE_4335_OPMODE))
-        return write_to_file(WIFI_MODULE_4335_OPMODE, mode_str, strlen(mode_str));
-    else {
-        ALOGE("wifi_switch_driver_mode: failed to switch opmode file not found");
-        return -1;
-    }
+    if (vendor < MAX_VENDORS && wops[vendor].switch_driver_mode)
+        return wops[vendor].switch_driver_mode(mode);
+    else if (vendor < MAX_VENDORS)
+        return 0;
+    return -1;
+}
+
+int wifi_change_fw_path(const char *fwpath)
+{
+    unsigned int vendor = 0;
+
+    vendor = wifi_get_vendor();
+
+    if (vendor < MAX_VENDORS && wops[vendor].change_fw_path)
+        return wops[vendor].change_fw_path(fwpath);
+    else if (vendor < MAX_VENDORS)
+        return 0;
+    return -1;
+}
+
+int wifi_load_driver(void)
+{
+    unsigned int vendor = 0;
+
+    vendor = wifi_get_vendor();
+
+    if (vendor < MAX_VENDORS && wops[vendor].load_driver)
+        return wops[vendor].load_driver();
+    else if (vendor < MAX_VENDORS)
+        return 0;
+
+    return -1;
+}
+
+int wifi_unload_driver(void)
+{
+    unsigned int vendor = 0;
+
+    vendor = wifi_get_vendor();
+
+    if (vendor < MAX_VENDORS && wops[vendor].unload_driver)
+        return wops[vendor].unload_driver();
+    else
+        return 0;
+
+    return -1;
+}
+
+int is_wifi_driver_loaded()
+{
+    unsigned int vendor = 0;
+
+    vendor = wifi_get_vendor();
+
+    if (vendor < MAX_VENDORS && wops[vendor].is_driver_loaded)
+        return wops[vendor].is_driver_loaded();
+    else if (vendor < MAX_VENDORS)
+        return 0;
+
+    return -1;
+}
+
+const char *wifi_get_fw_path(int fw_type)
+{
+    unsigned int vendor = 0;
+    vendor = wifi_get_vendor();
+
+    if (vendor < MAX_VENDORS && wops[vendor].get_fw_path)
+        return wops[vendor].get_fw_path(fw_type);
+    else if (vendor < MAX_VENDORS)
+        return "NO_FW_PATH";
+
+    return 0;
 }
