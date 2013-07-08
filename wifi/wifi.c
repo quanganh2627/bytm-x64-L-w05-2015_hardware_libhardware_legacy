@@ -95,8 +95,6 @@ static char primary_iface[PROPERTY_VALUE_MAX];
 #define WIFI_MODULE_4334X_OPMODE		"/sys/module/bcm4334x/parameters/op_mode"
 #define WIFI_MODULE_4335_OPMODE		"/sys/module/bcm4335/parameters/op_mode"
 
-#define WIFI_DRIVER_LOADER_DELAY	1000000
-
 static const char IFACE_DIR[]           = "/data/system/wpa_supplicant";
 #ifdef WIFI_DRIVER_MODULE_PATH
 static const char DRIVER_MODULE_NAME[]  = WIFI_DRIVER_MODULE_NAME;
@@ -115,12 +113,6 @@ static const char SUPP_CONFIG_FILE[]    = "/data/misc/wifi/wpa_supplicant.conf";
 static const char P2P_CONFIG_FILE[]     = "/data/misc/wifi/p2p_supplicant.conf";
 static const char CONTROL_IFACE_PATH[]  = "/data/misc/wifi/sockets";
 static const char MODULE_FILE[]         = "/proc/modules";
-
-/*
- * This gets defined by the script load_bcmdriver in
- * vendor/intel/common/wifi/bcm_specific/
- */
-static const char BCM_PROP_CHIP[]	= "wlan.bcm.chip";
 
 static const char SUPP_ENTROPY_FILE[]   = WIFI_ENTROPY_FILE;
 static unsigned char dummy_key[21] = { 0x02, 0x11, 0xbe, 0x33, 0x43, 0x35,
