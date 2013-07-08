@@ -28,6 +28,7 @@
 #include <poll.h>
 #include <pthread.h>
 #include <assert.h>
+#include <strings.h>
 
 #include "hardware_legacy/wifi.h"
 #include "libwpa_client/wpa_ctrl.h"
@@ -68,15 +69,14 @@
 #define DRIVER_PROP_NAME "wlan.driver.status"
 #define VENDOR_PROP_NAME "wlan.driver.vendor"
 
-#define WIFI_MODULE_43241_OPMODE	"/sys/module/bcm43241/parameters/op_mode"
-#define WIFI_MODULE_4334_OPMODE		"/sys/module/bcm4334/parameters/op_mode"
-#define WIFI_MODULE_4335_OPMODE		"/sys/module/bcm4335/parameters/op_mode"
-
+/* libnetutils */
 extern int do_dhcp();
 extern int ifc_init();
 extern void ifc_close();
 extern char *dhcp_lasterror();
 extern void get_dhcp_info();
+
+/* bionic */
 extern int init_module(void *, unsigned long, const char *);
 extern int delete_module(const char *, unsigned int);
 void wifi_close_sockets();
@@ -88,5 +88,15 @@ int write_to_file(const char *path, const char *data, size_t len);
 int file_exist(char *filename);
 void log_cmd(const char *cmd);
 void log_reply(char *reply, size_t *reply_len);
+
+struct wifi_glue_ops {
+        int             (*load_driver)(void);
+        int             (*unload_driver)(void);
+        int             (*switch_driver_mode)(int);
+        int             (*change_fw_path)(const char*);
+        const char *    (*get_fw_path)(int);
+        int             (*is_driver_loaded)(void);
+};
+
 
 #endif /* !WIFI_H_ */
