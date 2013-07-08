@@ -5,8 +5,11 @@ LOCAL_CFLAGS += -DCONFIG_CTRL_IFACE_CLIENT_PREFIX=\"wpa_ctrl_\"
 
 ifeq ($(TARGET_BOARD_PLATFORM),bigcore)
 	ADDITIONAL_DEFAULT_PROPERTIES += wifi.interface=wlan0
+
 	LOCAL_SRC_FILES += wifi/wifi_bc.c
 else
+
+ifneq (,$(filter wifi_bcm%,$(PRODUCTS.$(INTERNAL_PRODUCT).PRODUCT_PACKAGES)))
 	ifdef WIFI_DRIVER_MODULE_PATH
 	LOCAL_CFLAGS += -DWIFI_DRIVER_MODULE_PATH=\"$(WIFI_DRIVER_MODULE_PATH)\"
 	endif
@@ -45,9 +48,15 @@ else
 	LOCAL_CFLAGS += -DWIFI_DRIVER_FW_PATH_PARAM=\"$(WIFI_DRIVER_FW_PATH_PARAM)\"
 	endif
 
-	LOCAL_SRC_FILES += wifi/wifi.c
+	LOCAL_CFLAGS += -DWIFI_GLUE_WITH_BCM
+	LOCAL_SRC_FILES += wifi/vendors/bcm.c
+endif
 
-	LOCAL_SRC_FILES += wifi/utils.c wifi/supplicant.c
+ifneq (,$(filter wifi_ti%,$(PRODUCTS.$(INTERNAL_PRODUCT).PRODUCT_PACKAGES)))
+	LOCAL_CFLAGS += -DWIFI_GLUE_WITH_TI
+endif
+
+LOCAL_SRC_FILES += wifi/wifi.c wifi/utils.c wifi/supplicant.c
 
 endif
 

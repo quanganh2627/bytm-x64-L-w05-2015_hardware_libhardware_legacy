@@ -28,6 +28,7 @@
 #include <poll.h>
 #include <pthread.h>
 #include <assert.h>
+#include <strings.h>
 
 #include "hardware_legacy/wifi.h"
 #include "libwpa_client/wpa_ctrl.h"
@@ -75,16 +76,17 @@
 #define WIFI_DRIVER_FW_PATH_PARAM       "/sys/module/wlan/parameters/fwpath"
 #endif
 
-#define WIFI_MODULE_43241_OPMODE        "/sys/module/bcm43241/parameters/op_mode"
-#define WIFI_MODULE_4334_OPMODE         "/sys/module/bcm4334/parameters/op_mode"
-#define WIFI_MODULE_4334X_OPMODE        "/sys/module/bcm4334x/parameters/op_mode"
-#define WIFI_MODULE_4335_OPMODE         "/sys/module/bcm4335/parameters/op_mode"
+#define DRIVER_PROP_NAME "wlan.driver.status"
+#define VENDOR_PROP_NAME "wlan.driver.vendor"
 
+/* libnetutils */
 extern int do_dhcp();
 extern int ifc_init();
 extern void ifc_close();
 extern char *dhcp_lasterror();
 extern void get_dhcp_info();
+
+/* bionic */
 extern int init_module(void *, unsigned long, const char *);
 extern int delete_module(const char *, unsigned int);
 void wifi_close_sockets(int index);
@@ -121,5 +123,14 @@ int wifi_wait_on_socket(int index, char *buf, size_t buflen);
 int update_ctrl_interface(const char *config_file);
 int wifi_get_AP_station_list(char *reply, size_t *reply_len);
 int wifi_get_AP_station(char *cmd, char *addr, size_t addr_len);
+
+struct wifi_glue_ops {
+        int             (*load_driver)(void);
+        int             (*unload_driver)(void);
+        int             (*switch_driver_mode)(int);
+        int             (*change_fw_path)(const char*);
+        const char *    (*get_fw_path)(int);
+        int             (*is_driver_loaded)(void);
+};
 
 #endif /* !WIFI_H_ */
