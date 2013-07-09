@@ -1635,21 +1635,42 @@ bool AudioPolicyManagerBase::isOffloadSupported(uint32_t format,
          "durt %lld, sessionId %d, isVideo %d, isStreaming %d",
          format, stream, samplingRate, bitRate, duration, sessionId, (int)isVideo, (int)isStreaming);
     // lpa.tunnelling.enable is a system property that governs audio tunnelling
-    // lpa.vtunnelling.enable is a system property that governs audio tunnelling
-    // during AV playback
-    // Set for 1 for enabling, 0 for disabling
+    // 0 is set to disable. values other than 0 are for
+    // enabling offload for specific formats based on bits set.
     char value[PROPERTY_VALUE_MAX];
-    if (!property_get("lpa.tunnelling.enable", value, "0") || (!(bool)atoi(value))) {
-        ALOGV("isOffloadSupported: LPA property not set to true");
+    uint32_t LPAformat = 0;
+    if (property_get("lpa.tunnelling.enable", value, "0")) {
+        LPAformat = strtoul(value, NULL, 16);
+    }
+    if (LPAformat == 0) {
+        ALOGV("isOffloadSupported: LPA property set to false");
+        return false;
+    }
+    ALOGV("isOffloadSupported: LPAformat, format: %x, %x", LPAformat, format);
+    switch (format) {
+        case AUDIO_FORMAT_AAC:
+            if (!(LPAformat & AUDIO_OFFLOAD_AAC)) {
+                ALOGV("isOffloadSupported: format %x unsupported for offload", format);
+                return false;
+            }
+            break;
+        case AUDIO_FORMAT_MP3:
+             if (!(LPAformat & AUDIO_OFFLOAD_MP3)) {
+                 ALOGV("isOffloadSupported: format %x unsupported for offload", format);
+                 return false;
+             }
+             break;
+        default:
+            ALOGV("isOffloadSupported: format %x unsupported for offload", format);
+            return false;
+    }
+
+    // Check if audio offload is enabled for playback of AV files
+    if (isVideo && (!(LPAformat & VIDEO_OFFLOAD))) {
+        ALOGV("isOffloadSupported: LPA property set to false for AV files");
         return false;
     }
 
-    if (isVideo) {
-        if(!property_get("lpa.vtunnelling.enable", value, "0") || (!(bool)atoi(value))) {
-            ALOGV("isOffloadSupported: AV file, LPA for video not true");
-            return false;
-        }
-    }
     // If stream is not music or one of offload supported format, return false
     if (stream != AUDIO_STREAM_MUSIC ) {
         ALOGV("isOffloadSupported: return false as stream!=Music");
@@ -1678,15 +1699,6 @@ bool AudioPolicyManagerBase::isOffloadSupported(uint32_t format,
         return false;
     }
 
-    // If format is not supported by LPE Music offload output, return PCM (IA-Decode)
-    switch (format) {
-        case AUDIO_FORMAT_MP3:
-        case AUDIO_FORMAT_AAC:
-            break;
-        default:
-            ALOGV("isOffloadSupported: return false as unsupported format= %x", format);
-            return false;
-    }
 
     // If output device != SPEAKER or HEADSET/HEADPHONE, make it as IA-decoding option
     routing_strategy strategy = getStrategy((AudioSystem::stream_type)stream);
