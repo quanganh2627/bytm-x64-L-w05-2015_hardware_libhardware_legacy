@@ -57,6 +57,13 @@ ifneq (,$(filter wifi_ti%,$(PRODUCTS.$(INTERNAL_PRODUCT).PRODUCT_PACKAGES)))
 	LOCAL_CFLAGS += -DWIFI_GLUE_WITH_TI
 endif
 
+ifneq (,$(filter wifi_mtk%,$(PRODUCTS.$(INTERNAL_PRODUCT).PRODUCT_PACKAGES)))
+
+	LOCAL_CFLAGS += -DWIFI_GLUE_WITH_MTK
+	LOCAL_SRC_FILES += wifi/vendors/mtk.c
+
+endif
+
 LOCAL_SRC_FILES += wifi/wifi.c wifi/utils.c wifi/supplicant.c
 
 LOCAL_SHARED_LIBRARIES += libnetutils

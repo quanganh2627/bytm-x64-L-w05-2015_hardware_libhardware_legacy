@@ -23,6 +23,10 @@
 #  include "vendors/bc.h"
 #endif
 
+#ifdef WIFI_GLUE_WITH_MTK
+#  include "vendors/mtk.h"
+#endif
+
 enum {
     /* See X Macro trick on Wikipedia */
 #define WIFI_GLUE(Vendor, Ops...) VENDOR_ ## Vendor,
