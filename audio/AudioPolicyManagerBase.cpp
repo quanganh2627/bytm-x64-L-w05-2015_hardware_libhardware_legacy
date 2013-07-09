@@ -1695,15 +1695,40 @@ bool AudioPolicyManagerBase::isOffloadSupported(uint32_t format,
          "stream=%x, sampRate %d, bitRate %d,"
          "durt %lld, sessionId %d, isVideo %d, isStreaming %d",
          format, stream, samplingRate, bitRate, duration, sessionId, (int)isVideo, (int)isStreaming);
-    // lpa.tunnelling.enable is used for testing. Should be 1 for normal operation
-    bool useLPA = false;
+    // lpa.tunnelling.enable is a system property that governs audio tunnelling
+    // 0 is set to disable. values other than 0 are for
+    // enabling offload for specific formats based on bits set.
     char value[PROPERTY_VALUE_MAX];
+    uint32_t LPAformat = 0;
     if (property_get("lpa.tunnelling.enable", value, "0")) {
-        useLPA = (bool)atoi(value);
+        LPAformat = strtoul(value, NULL, 16);
+    }
+    if (LPAformat == 0) {
+        ALOGV("isOffloadSupported: LPA property set to false");
+        return false;
+    }
+    ALOGV("isOffloadSupported: LPAformat, format: %x, %x", LPAformat, format);
+    switch (format) {
+        case AUDIO_FORMAT_AAC:
+            if (!(LPAformat & AUDIO_OFFLOAD_AAC)) {
+                ALOGV("isOffloadSupported: format %x unsupported for offload", format);
+                return false;
+            }
+            break;
+        case AUDIO_FORMAT_MP3:
+             if (!(LPAformat & AUDIO_OFFLOAD_MP3)) {
+                 ALOGV("isOffloadSupported: format %x unsupported for offload", format);
+                 return false;
+             }
+             break;
+        default:
+            ALOGV("isOffloadSupported: format %x unsupported for offload", format);
+            return false;
     }
 
-    ALOGV("useLPA %i", useLPA);
-    if (!useLPA) {
+    // Check if audio offload is enabled for playback of AV files
+    if (isVideo && (!(LPAformat & VIDEO_OFFLOAD))) {
+        ALOGV("isOffloadSupported: LPA property set to false for AV files");
         return false;
     }
 
