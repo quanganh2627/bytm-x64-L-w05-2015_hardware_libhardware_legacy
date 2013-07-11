@@ -225,7 +225,8 @@ status_t AudioPolicyManagerBase::setDeviceConnectionState(audio_devices_t device
                 (device == AudioSystem::DEVICE_OUT_WIRED_HEADPHONE)){
                 if ((mForceUse[AudioSystem::FOR_MEDIA] == AudioSystem::FORCE_NO_BT_A2DP) &&
                     (getA2dpOutput() != 0) &&
-                    !(mAvailableOutputDevices & AudioSystem::DEVICE_OUT_WIDI)) {
+                    !((mAvailableOutputDevices & AudioSystem::DEVICE_OUT_WIDI) ||
+                            (mAvailableOutputDevices & AudioSystem::DEVICE_OUT_REMOTE_SUBMIX))) {
                     ALOGD("Disabling priority over BT A2DP for MEDIA streams");
                     mForceUse[AudioSystem::FOR_MEDIA] = AudioSystem::FORCE_NONE;
                 }
@@ -2520,9 +2521,10 @@ AudioPolicyManagerBase::routing_strategy AudioPolicyManagerBase::getStrategyforb
     }
     // if widi device is connected, alarm must be heard only in local
     // in all modes
-    if((mAvailableOutputDevices & AudioSystem::DEVICE_OUT_WIDI) &&
-        (stream == AudioSystem::ALARM)) {
-            return STRATEGY_SONIFICATION_LOCAL;
+    if(((mAvailableOutputDevices & AudioSystem::DEVICE_OUT_WIDI) ||
+            (mAvailableOutputDevices & AudioSystem::DEVICE_OUT_REMOTE_SUBMIX)) &&
+            (stream == AudioSystem::ALARM)) {
+       return STRATEGY_SONIFICATION_LOCAL;
     }
 
     return getStrategy(stream);
@@ -2603,8 +2605,11 @@ audio_devices_t AudioPolicyManagerBase::getDeviceForStrategy(routing_strategy st
             // use the same device if device is not WIDI or HDMI,
             // otherwise fall back on the sonification behavior
             device = getDeviceForStrategy(STRATEGY_MEDIA, false /*fromCache*/);
-            if (device == AudioSystem::DEVICE_OUT_WIDI || device == AudioSystem::DEVICE_OUT_AUX_DIGITAL)
+            if (device == AudioSystem::DEVICE_OUT_WIDI ||
+                    device == AudioSystem::DEVICE_OUT_AUX_DIGITAL ||
+                    device == AudioSystem::DEVICE_OUT_REMOTE_SUBMIX) {
                 device = getDeviceForStrategy(STRATEGY_SONIFICATION, false /*fromCache*/);
+            }
         } else {
             // when media is not playing anymore, fall back on the sonification behavior
             device = getDeviceForStrategy(STRATEGY_SONIFICATION, false /*fromCache*/);
@@ -3377,6 +3382,7 @@ float AudioPolicyManagerBase::computeVolume(int stream,
             AudioSystem::DEVICE_OUT_BLUETOOTH_A2DP_HEADPHONES |
             AudioSystem::DEVICE_OUT_WIRED_HEADSET |
             AudioSystem::DEVICE_OUT_WIDI|
+            AudioSystem::DEVICE_OUT_REMOTE_SUBMIX |
             AudioSystem::DEVICE_OUT_WIRED_HEADPHONE)) &&
         ((stream_strategy == STRATEGY_SONIFICATION)
                 || (stream_strategy == STRATEGY_SONIFICATION_RESPECTFUL)
