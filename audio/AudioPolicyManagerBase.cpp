@@ -2935,7 +2935,12 @@ uint32_t AudioPolicyManagerBase::checkDeviceMuteStrategies(AudioOutputDescriptor
 
     uint32_t muteWaitMs = 0;
     audio_devices_t device = outputDesc->device();
-    bool shouldMute = outputDesc->isActive() && (AudioSystem::popCount(device) >= 2);
+
+    bool shouldMute = ((outputDesc->mId == mPrimaryOutput) ||
+                       (outputDesc->mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD))
+                       && (outputDesc->refCount() != 0)
+                       && (AudioSystem::popCount(device) >= 2);
+
     // temporary mute output if device selection changes to avoid volume bursts due to
     // different per device volumes
     bool tempMute = outputDesc->isActive() && (device != prevDevice);
