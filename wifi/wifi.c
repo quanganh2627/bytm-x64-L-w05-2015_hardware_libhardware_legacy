@@ -631,6 +631,9 @@ int wifi_stop_supplicant(int p2p_supported)
 {
     char supp_status[PROPERTY_VALUE_MAX] = {'\0'};
     int count = 50; /* wait at most 5 seconds for completion */
+    char pidpropname[] = "wpa_supplicant.pid";
+    char pidpropval[PROPERTY_VALUE_MAX];
+    int ret, pid;
 
     if (p2p_supported) {
         strcpy(supplicant_name, P2P_SUPPLICANT_NAME);
@@ -646,6 +649,29 @@ int wifi_stop_supplicant(int p2p_supported)
         return 0;
     }
 
+    /* Shutdown wpa_supplicant with SIGTERM signal instead of
+     * SIGKILL sent by ctl.stop system command .
+     * SIGTERM allows to deinit properly all the wifi interfaces,
+     * specially p2p0 and p2p-p2p0-X virtual interfaces. It fixes
+     * further p2p connections after an Android framework softreboot
+     */
+
+    property_get(pidpropname, pidpropval, "-1");
+    pid = atoi(pidpropval);
+
+    LOGD("wpa_supplicant pid %d", pid);
+    if (pid > 0) {
+        /* try a nice wpa_supplicant shutdown */
+        ret = kill(pid, SIGTERM);
+        if (ret == 0) {
+            waitpid(pid, NULL, 0);
+            usleep(800000);
+            LOGD("wpa_supplicant pid %d stopped with SIGTERM", pid);
+            property_set(pidpropname, "");
+        } else {
+            LOGE("wpa_supplicant pid %d failed to stop", pid);
+        }
+    }
     property_set("ctl.stop", supplicant_name);
     sched_yield();
 
