@@ -606,11 +606,9 @@ protected:
         uint32_t        mTestLatencyMs;
 #endif //AUDIO_POLICY_TEST
 
-#ifdef BGM_ENABLED
         /*flag to keep track of background music*/
         bool     mIsBGMEnabled;
         audio_io_handle_t mBGMOutput;
-#endif /*BGM_ENABLED*/
 
 private:
         static float volIndexToAmpl(audio_devices_t device, const StreamDescriptor& streamDesc,

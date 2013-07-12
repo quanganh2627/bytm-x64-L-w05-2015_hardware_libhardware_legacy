@@ -1137,7 +1137,8 @@ void AudioPolicyManagerBase::releaseOutput(audio_io_handle_t output)
             mpClientInterface->setParameters(0, param.toString(), 0);
 #endif
         // Close offload output only if ref count is zero.
-        if (outputDesc->refCount() == 0) {
+        int refCount = outputDesc->mRefCount[index];
+        if (refCount == 0) {
             ALOGV("releaseOutput: closing output");
             mpClientInterface->closeOutput(output);
             delete mOutputs.valueAt(index);
