@@ -2546,14 +2546,20 @@ AudioPolicyManagerBase::routing_strategy AudioPolicyManagerBase::getStrategyforb
         ALOGVV("unsupported BGM strategy");
       } //switch
     }
-    // if widi device is connected, alarm must be heard only in local
+    // if widi device is connected, alarm must be heard only in local,
+    // notification must be heard on both DUT and Widi
     // in all modes
-    if(mAvailableOutputDevices & AudioSystem::DEVICE_OUT_WIDI) {
-       switch (stream) {
-         case AudioSystem::ALARM:
+    if(((mAvailableOutputDevices & AudioSystem::DEVICE_OUT_WIDI) ||
+        (mAvailableOutputDevices & AudioSystem::DEVICE_OUT_REMOTE_SUBMIX))) {
+        switch (stream) {
+        case AudioSystem::ALARM:
             return STRATEGY_SONIFICATION_LOCAL;
-       } //switch
-    } //if
+        case AudioSystem::NOTIFICATION:
+            return STRATEGY_SONIFICATION;
+        default:
+            break;
+        }
+    }
 
     return getStrategy(stream);
 }
@@ -3421,7 +3427,6 @@ float AudioPolicyManagerBase::computeVolume(int stream,
     if ((device & (AudioSystem::DEVICE_OUT_BLUETOOTH_A2DP |
             AudioSystem::DEVICE_OUT_BLUETOOTH_A2DP_HEADPHONES |
             AudioSystem::DEVICE_OUT_WIRED_HEADSET |
-            AudioSystem::DEVICE_OUT_WIDI|
             AudioSystem::DEVICE_OUT_WIRED_HEADPHONE)) &&
         ((stream_strategy == STRATEGY_SONIFICATION)
                 || (stream_strategy == STRATEGY_SONIFICATION_RESPECTFUL)
