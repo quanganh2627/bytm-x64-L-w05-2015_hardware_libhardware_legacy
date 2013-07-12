@@ -301,6 +301,7 @@ protected:
             uint32_t mRefCount;                         // number of AudioRecord clients using this output
             int      mInputSource;                      // input source selected by application (mediarecorder.h)
             const IOProfile *mProfile;                  // I/O profile this output derives from
+            bool     mHasStarted;                       // to indicate that the audiorecord has started
         };
 
         // stream descriptor used for volume control
@@ -536,6 +537,8 @@ protected:
         bool getCustomPropertyAsFloat(const String8 &name, float &value) const;
         bool getCustomPropertyAsBool(const String8 &name, bool &value) const;
 
+        // check if stream is valid
+        static bool isStreamValid(AudioSystem::stream_type stream);
 
         AudioPolicyClientInterface *mpClientInterface;  // audio policy client interface
         audio_io_handle_t mPrimaryOutput;              // primary output handle
@@ -607,6 +610,7 @@ private:
         // updates device caching and output for streams that can influence the
         //    routing of notifications
         void handleNotificationRoutingForStream(AudioSystem::stream_type stream);
+
         static bool isVirtualInputDevice(audio_devices_t device);
 #ifdef BGM_ENABLED
         bool IsBackgroundMusicSupported(AudioSystem::stream_type stream);

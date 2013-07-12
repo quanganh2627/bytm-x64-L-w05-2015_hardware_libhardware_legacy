@@ -621,7 +621,7 @@ AudioPolicyManagerBase::IOProfile *AudioPolicyManagerBase::getProfileForDirectOu
                    return mHwModules[i]->mOutputProfiles[j];
                }
            } else if((channelMask <= AUDIO_CHANNEL_OUT_STEREO) &&
-                    (device == AudioSystem::DEVICE_OUT_AUX_DIGITAL)){
+                     (device == AudioSystem::DEVICE_OUT_AUX_DIGITAL)){
               /*Direct output is selected only for multichannel content over HDMI
                 NOTE - if stereo contents needs direct thread over HDMI; this condition
                        needs to be removed*/
@@ -640,6 +640,12 @@ AudioPolicyManagerBase::IOProfile *AudioPolicyManagerBase::getProfileForDirectOu
     return 0;
 }
 
+bool AudioPolicyManagerBase::isStreamValid(AudioSystem::stream_type stream)
+{
+    return ((AudioSystem::stream_type) 0 <= stream) &&
+        (stream < AudioSystem::NUM_STREAM_TYPES);
+}
+
 audio_io_handle_t AudioPolicyManagerBase::getOutput(AudioSystem::stream_type stream,
                                     uint32_t samplingRate,
                                     uint32_t format,
@@ -647,6 +653,12 @@ audio_io_handle_t AudioPolicyManagerBase::getOutput(AudioSystem::stream_type str
                                     AudioSystem::output_flags flags)
 {
     ALOGI("APM: getOutput");
+
+    if (!isStreamValid(stream)) {
+        ALOGE("getOutput() invalid stream of type %d", stream);
+        return 0;
+    }
+
     audio_io_handle_t output = 0;
     uint32_t latency = 0;
 
@@ -897,6 +909,12 @@ status_t AudioPolicyManagerBase::startOutput(audio_io_handle_t output,
                                              int session)
 {
     ALOGV("startOutput() output %d, stream %d, session %d", output, stream, session);
+
+    if (!isStreamValid(stream)) {
+        ALOGE("startOutput() invalid stream of type %d", stream);
+        return BAD_VALUE;
+    }
+
     ssize_t index = mOutputs.indexOfKey(output);
     if (index < 0) {
         ALOGW("startOutput() unknow output %d", output);
@@ -985,6 +1003,11 @@ status_t AudioPolicyManagerBase::stopOutput(audio_io_handle_t output,
                                             int session)
 {
     ALOGV("stopOutput() output %d, stream %d, session %d", output, stream, session);
+    if (!isStreamValid(stream)) {
+        ALOGE("stopOutput() invalid stream of type %d", stream);
+        return BAD_VALUE;
+    }
+
     ssize_t index = mOutputs.indexOfKey(output);
     if (index < 0) {
         ALOGW("stopOutput() unknow output %d", output);
@@ -1273,6 +1296,12 @@ void AudioPolicyManagerBase::initStreamVolume(AudioSystem::stream_type stream,
                                             int indexMax)
 {
     ALOGV("initStreamVolume() stream %d, min %d, max %d", stream , indexMin, indexMax);
+
+    if (!isStreamValid(stream)) {
+        ALOGE("initStreamVolume() invalid stream of type %d", stream);
+        return;
+    }
+
     if (indexMin < 0 || indexMin >= indexMax) {
         ALOGW("initStreamVolume() invalid index limits for stream %d, min %d, max %d", stream , indexMin, indexMax);
         return;
@@ -1285,6 +1314,10 @@ status_t AudioPolicyManagerBase::setStreamVolumeIndex(AudioSystem::stream_type s
                                                       int index,
                                                       audio_devices_t device)
 {
+    if (!isStreamValid(stream)) {
+        ALOGE("setStreamVolumeIndex() invalid stream of type %d", stream);
+        return BAD_VALUE;
+    }
 
     if ((index < mStreams[stream].mIndexMin) || (index > mStreams[stream].mIndexMax)) {
         return BAD_VALUE;
@@ -1325,6 +1358,11 @@ status_t AudioPolicyManagerBase::getStreamVolumeIndex(AudioSystem::stream_type s
                                                       int *index,
                                                       audio_devices_t device)
 {
+    if (!isStreamValid(stream)) {
+        ALOGE("getStreamVolumeIndex() invalid stream of type %d", stream);
+        return BAD_VALUE;
+    }
+
     if (index == NULL) {
         return BAD_VALUE;
     }
@@ -1595,18 +1633,22 @@ bool AudioPolicyManagerBase::isOffloadSupported(uint32_t format,
          "stream=%x, sampRate %d, bitRate %d,"
          "durt %lld, sessionId %d, isVideo %d, isStreaming %d",
          format, stream, samplingRate, bitRate, duration, sessionId, (int)isVideo, (int)isStreaming);
-    // lpa.tunnelling.enable is used for testing. Should be 1 for normal operation
-    bool useLPA = false;
+    // lpa.tunnelling.enable is a system property that governs audio tunnelling
+    // lpa.vtunnelling.enable is a system property that governs audio tunnelling
+    // during AV playback
+    // Set for 1 for enabling, 0 for disabling
     char value[PROPERTY_VALUE_MAX];
-    if (property_get("lpa.tunnelling.enable", value, "0")) {
-        useLPA = (bool)atoi(value);
-    }
-
-    ALOGV("useLPA %i", useLPA);
-    if (!useLPA) {
+    if (!property_get("lpa.tunnelling.enable", value, "0") || (!(bool)atoi(value))) {
+        ALOGV("isOffloadSupported: LPA property not set to true");
         return false;
     }
 
+    if (isVideo) {
+        if(!property_get("lpa.vtunnelling.enable", value, "0") || (!(bool)atoi(value))) {
+            ALOGV("isOffloadSupported: AV file, LPA for video not true");
+            return false;
+        }
+    }
     // If stream is not music or one of offload supported format, return false
     if (stream != AUDIO_STREAM_MUSIC ) {
         ALOGV("isOffloadSupported: return false as stream!=Music");
@@ -1614,7 +1656,6 @@ bool AudioPolicyManagerBase::isOffloadSupported(uint32_t format,
     }
     // The LPE Music offload output is not free, return PCM
     if ((mMusicOffloadOutput) && (sessionId != mMusicOffloadSessionId)) {
-        ALOGV("isOffloadSupported: mMusicOffloadOutput = %d", mMusicOffloadOutput);
         ALOGV("isOffloadSupported: Already offload in progress, use non offload decoding");
         return false;
     }
@@ -1631,13 +1672,13 @@ bool AudioPolicyManagerBase::isOffloadSupported(uint32_t format,
         return false;
     }
 
-    if ((isVideo) || (isStreaming)) {
-        ALOGV("isOffloadSupported: Video or stream is enabled, returning false");
+    if (isStreaming) {
+        ALOGV("isOffloadSupported: streaming is enabled, returning false");
         return false;
     }
 
     // If format is not supported by LPE Music offload output, return PCM (IA-Decode)
-    switch (format){
+    switch (format) {
         case AUDIO_FORMAT_MP3:
         case AUDIO_FORMAT_AAC:
             break;
@@ -2479,12 +2520,10 @@ AudioPolicyManagerBase::routing_strategy AudioPolicyManagerBase::getStrategyforb
     }
     // if widi device is connected, alarm must be heard only in local
     // in all modes
-    if(mAvailableOutputDevices & AudioSystem::DEVICE_OUT_WIDI) {
-       switch (stream) {
-         case AudioSystem::ALARM:
+    if((mAvailableOutputDevices & AudioSystem::DEVICE_OUT_WIDI) &&
+        (stream == AudioSystem::ALARM)) {
             return STRATEGY_SONIFICATION_LOCAL;
-       } //switch
-    } //if
+    }
 
     return getStrategy(stream);
 }
@@ -3401,21 +3440,21 @@ status_t AudioPolicyManagerBase::checkAndSetVolume(int stream,
     // - the force flag is set
     if (volume != mOutputs.valueFor(output)->mCurVolume[stream] ||
             force) {
-        mOutputs.valueFor(output)->mCurVolume[stream] = volume;
-        ALOGVV("checkAndSetVolume() for output %d stream %d, volume %f, delay %d", output, stream, volume, delayMs);
-        // Force VOICE_CALL to track BLUETOOTH_SCO stream volume when bluetooth audio is
-        // enabled
-        if (stream == AudioSystem::BLUETOOTH_SCO) {
-            mpClientInterface->setStreamVolume(AudioSystem::VOICE_CALL, volume, output, delayMs);
-        }
 #ifdef BGM_ENABLED
-        if ((IsBackgroundMusicSupported((AudioSystem::stream_type)stream)) &&
-            (mBGMOutput) && (device & AUDIO_DEVICE_OUT_REMOTE_BGM_SINK)) {
+        if (mIsBGMEnabled) {
             ALOGD("[BGMUSIC] DO NOT APPLY VOLUME for BGM SINK");
-        } else
+        } else {
+#endif //BGM_ENABLED
+            mOutputs.valueFor(output)->mCurVolume[stream] = volume;
+            ALOGVV("checkAndSetVolume() for output %d stream %d, volume %f, delay %d", output, stream, volume, delayMs);
+            // Force VOICE_CALL to track BLUETOOTH_SCO stream volume when bluetooth audio is
+            // enabled
+            if (stream == AudioSystem::BLUETOOTH_SCO) {
+                mpClientInterface->setStreamVolume(AudioSystem::VOICE_CALL, volume, output, delayMs);
+            }
             mpClientInterface->setStreamVolume((AudioSystem::stream_type)stream, volume, output, delayMs);
-#else
-        mpClientInterface->setStreamVolume((AudioSystem::stream_type)stream, volume, output, delayMs);
+#ifdef BGM_ENABLED
+        }
 #endif //BGM_ENABLED
     }
 
@@ -3439,6 +3478,7 @@ status_t AudioPolicyManagerBase::checkAndSetVolume(int stream,
     if (mBGMOutput && IsBackgroundMusicSupported((AudioSystem::stream_type)stream)) {
        // get the newly forced sink
          audio_devices_t device2 = getDeviceForStrategy(STRATEGY_BACKGROUND_MUSIC, false /*fromCache*/);
+         index = mStreams[stream].getVolumeIndex(AudioSystem::DEVICE_OUT_WIDI);
          float volume = computeVolume(stream, index, device2);
          ALOGV("[BGMUSIC] compute volume for the forced active sink = %f for device %x",volume, device2);
          //apply the new volume for the primary output
@@ -3772,7 +3812,7 @@ status_t AudioPolicyManagerBase::AudioOutputDescriptor::dump(int fd)
 AudioPolicyManagerBase::AudioInputDescriptor::AudioInputDescriptor(const IOProfile *profile)
     : mSamplingRate(0), mFormat((audio_format_t)0), mChannelMask((audio_channel_mask_t)0),
       mDevice(AUDIO_DEVICE_NONE), mRefCount(0),
-      mInputSource(0), mProfile(profile)
+      mInputSource(0), mProfile(profile), mHasStarted(0)
 {
 }
 
