@@ -25,6 +25,8 @@
 #include <utils/SortedVector.h>
 #include <hardware_legacy/AudioPolicyInterface.h>
 
+// Change it according to policy. Currently set to 20 secs
+#define OFFLOAD_MIN_FILE_DURATION 20 //seconds
 
 namespace android_audio_legacy {
     using android::KeyedVector;
@@ -140,6 +142,15 @@ public:
         virtual bool isSourceActive(audio_source_t source) const;
 
         virtual status_t dump(int fd);
+
+        virtual bool isOffloadSupported(uint32_t format,
+                                         audio_stream_type_t stream,
+                                         uint32_t samplingRate,
+                                         uint32_t bitRate,
+                                         int64_t duration,
+                                         int sessionId,
+                                         bool hasVideo = false,
+                                         bool hasStreaming = false);
 
 protected:
 
@@ -493,6 +504,8 @@ protected:
 
         audio_io_handle_t selectOutput(const SortedVector<audio_io_handle_t>& outputs,
                                        AudioSystem::output_flags flags);
+        audio_io_handle_t selectDirectOutput(const SortedVector<audio_io_handle_t>& outputs,
+                                       AudioSystem::output_flags flags);
         IOProfile *getInputProfile(audio_devices_t device,
                                    uint32_t samplingRate,
                                    uint32_t format,
@@ -535,6 +548,8 @@ protected:
 
         AudioPolicyClientInterface *mpClientInterface;  // audio policy client interface
         audio_io_handle_t mPrimaryOutput;              // primary output handle
+        audio_io_handle_t mMusicOffloadOutput;          // Music offload output handler
+        int mMusicOffloadSessionId;          // Audio session which has active offload output
         // list of descriptors for outputs currently opened
         DefaultKeyedVector<audio_io_handle_t, AudioOutputDescriptor *> mOutputs;
         // copy of mOutputs before setDeviceConnectionState() opens new outputs

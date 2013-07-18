@@ -267,7 +267,13 @@ public:
 
         DEVICE_IN_ALL = (DEVICE_IN_COMMUNICATION | DEVICE_IN_AMBIENT | DEVICE_IN_BUILTIN_MIC |
                 DEVICE_IN_BLUETOOTH_SCO_HEADSET | DEVICE_IN_WIRED_HEADSET | DEVICE_IN_AUX_DIGITAL |
-                DEVICE_IN_VOICE_CALL | DEVICE_IN_BACK_MIC | DEVICE_IN_DEFAULT)
+                DEVICE_IN_VOICE_CALL | DEVICE_IN_BACK_MIC | DEVICE_IN_DEFAULT),
+
+        //devices not supported for codec offload
+        DEVICE_OUT_NON_OFFLOAD = (DEVICE_OUT_ALL & ~(DEVICE_OUT_SPEAKER |
+                                  DEVICE_OUT_WIRED_HEADSET |
+                                  DEVICE_OUT_WIRED_HEADPHONE |
+                                  DEVICE_OUT_EARPIECE))
     };
 
     // request to open a direct output with getOutput() (by opposition to sharing an output with other AudioTracks)
