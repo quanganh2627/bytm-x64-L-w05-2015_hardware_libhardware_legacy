@@ -2310,7 +2310,7 @@ void AudioPolicyManagerBase::checkOutputForStrategy(routing_strategy strategy)
             AudioOutputDescriptor *desc = mOutputs.valueFor(srcOutputs[i]);
             if (desc->isStrategyActive(strategy)) {
                 setStrategyMute(strategy, true, srcOutputs[i]);
-                setStrategyMute(strategy, false, srcOutputs[i], MUTE_TIME_MS, newDevice);
+                setStrategyMute(strategy, false, srcOutputs[i], desc->mLatency*2, newDevice);
             }
         }
 
