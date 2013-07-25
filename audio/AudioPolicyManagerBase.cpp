@@ -770,14 +770,6 @@ audio_io_handle_t AudioPolicyManagerBase::getOutput(AudioSystem::stream_type str
         addOutput(output, outputDesc);
         if (outputDesc->mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) {
             mMusicOffloadOutput = true;
-
-#ifdef MRFLD_AUDIO
-            // Informs primary HAL that a compressed output will be started
-            AudioParameter param;
-            param.addInt(String8(AudioParameter::keyStreamFlags),
-                         AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD);
-            mpClientInterface->setParameters(0, param.toString(), 0);
-#endif
         }
         mPreviousOutputs = mOutputs;
         ALOGV("getOutput() returns new direct output %d", output);
@@ -942,13 +934,10 @@ status_t AudioPolicyManagerBase::startOutput(audio_io_handle_t output,
 
 
     if (outputDesc->mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) {
-
-#ifndef MRFLD_AUDIO
        // Informs primary HAL that a compressed output will be started
        AudioParameter param;
        param.addInt(String8(AudioParameter::keyStreamFlags), AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD);
        mpClientInterface->setParameters(0, param.toString(), 0);
-#endif
        // Stores the current audio sessionId for use in gapless offlaoded playback.
        mMusicOffloadSessionId = session;
     }
@@ -1037,16 +1026,12 @@ status_t AudioPolicyManagerBase::stopOutput(audio_io_handle_t output,
     }
 
     if (outputDesc->mRefCount[stream] > 0) {
-
-#ifndef MRFLD_AUDIO
         if (outputDesc->mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) {
-
            // Informs primary HAL that a compressed output stops
            AudioParameter param;
            param.addInt(String8(AudioParameter::keyStreamFlags), AUDIO_OUTPUT_FLAG_NONE);
            mpClientInterface->setParameters(0, param.toString(), 0);
         }
-#endif
 
         // decrement usage count of this stream on the output
         outputDesc->changeRefCount(stream, -1);
@@ -1125,12 +1110,6 @@ void AudioPolicyManagerBase::releaseOutput(audio_io_handle_t output)
 
         AudioOutputDescriptor *outputDesc = mOutputs.valueAt(index);
 
-#ifdef MRFLD_AUDIO
-            // Informs primary HAL that a compressed output stops
-            AudioParameter param;
-            param.addInt(String8(AudioParameter::keyStreamFlags), AUDIO_OUTPUT_FLAG_NONE);
-            mpClientInterface->setParameters(0, param.toString(), 0);
-#endif
         // Close offload output only if ref count is zero.
         int refCount = outputDesc->mRefCount[index];
         if (refCount == 0) {
