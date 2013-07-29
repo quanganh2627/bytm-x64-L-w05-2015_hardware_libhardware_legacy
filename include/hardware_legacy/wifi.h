@@ -99,6 +99,19 @@ void wifi_close_hostapd_connection();
 int  wifi_get_AP_station_list(char *reply, size_t *reply_len);
 
 /**
+ * wifi_get_AP_channel_list() issues a command to get all
+ * allowed channels in hotspot mode.
+ *
+ * @param reply is a buffer to receive a reply string
+ * @param reply_len on entry, this is the maximum length of
+ *        the reply buffer. On exit, the number of
+ *        bytes in the reply buffer.
+ *
+ * @return 0 if successful, < 0 if an error.
+ */
+int wifi_get_AP_channel_list(char *addr, size_t *addr_len);
+
+/**
  * wifi_wait_for_event() performs a blocking call to 
  * get a Wi-Fi event and returns a string representing 
  * a Wi-Fi event when it occurs.
