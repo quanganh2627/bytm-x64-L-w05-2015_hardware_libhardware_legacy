@@ -2766,6 +2766,24 @@ audio_devices_t AudioPolicyManagerBase::getDeviceForStrategy(routing_strategy st
 
         uint32_t device2 = 0;
 
+        switch (mForceUse[AudioSystem::FOR_MEDIA]) {
+            case AudioSystem::FORCE_SPEAKER:
+                device = mAvailableOutputDevices & AUDIO_DEVICE_OUT_SPEAKER;
+                  if (device)
+                    return device;
+                break;
+            case AudioSystem::FORCE_HEADPHONES:
+                device = mAvailableOutputDevices & AUDIO_DEVICE_OUT_WIRED_HEADPHONE;
+                if (device)
+                    return device;
+                 device = mAvailableOutputDevices & AUDIO_DEVICE_OUT_WIRED_HEADSET;
+                if (device)
+                    return device;
+                break;
+            default:
+                break;
+        }
+
 #ifdef BGM_ENABLED
         //If BGM devices are present, always force the output to it
         // - other attached sinks will be handled in STRATEGY_BACKGROUND_MUSIC
