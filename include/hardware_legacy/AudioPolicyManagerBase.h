@@ -158,6 +158,7 @@ protected:
             STRATEGY_SONIFICATION_LOCAL,
             STRATEGY_DTMF,
             STRATEGY_ENFORCED_AUDIBLE,
+            STRATEGY_IDLE,
             NUM_STRATEGIES
         };
 
