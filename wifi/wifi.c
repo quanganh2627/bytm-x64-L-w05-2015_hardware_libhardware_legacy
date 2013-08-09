@@ -625,6 +625,9 @@ int wifi_stop_supplicant(int p2p_supported)
 {
     char supp_status[PROPERTY_VALUE_MAX] = {'\0'};
     int count = 50; /* wait at most 5 seconds for completion */
+    char pidpropname[] = "wpa_supplicant.pid";
+    char pidpropval[PROPERTY_VALUE_MAX];
+    int ret, pid;
 
     if (p2p_supported) {
         strcpy(supplicant_name, P2P_SUPPLICANT_NAME);
@@ -640,6 +643,29 @@ int wifi_stop_supplicant(int p2p_supported)
         return 0;
     }
 
+    /* Shutdown wpa_supplicant with SIGTERM signal instead of
+     * SIGKILL sent by ctl.stop system command .
+     * SIGTERM allows to deinit properly all the wifi interfaces,
+     * specially p2p0 and p2p-p2p0-X virtual interfaces. It fixes
+     * further p2p connections after an Android framework softreboot
+     */
+
+    property_get(pidpropname, pidpropval, "-1");
+    pid = atoi(pidpropval);
+
+    LOGD("wpa_supplicant pid %d", pid);
+    if (pid > 0) {
+        /* try a nice wpa_supplicant shutdown */
+        ret = kill(pid, SIGTERM);
+        if (ret == 0) {
+            waitpid(pid, NULL, 0);
+            usleep(800000);
+            LOGD("wpa_supplicant pid %d stopped with SIGTERM", pid);
+            property_set(pidpropname, "");
+        } else {
+            LOGE("wpa_supplicant pid %d failed to stop", pid);
+        }
+    }
     property_set("ctl.stop", supplicant_name);
     sched_yield();
 
@@ -1126,6 +1152,44 @@ int wifi_get_AP_station(char *cmd, char *addr, size_t addr_len)
 
     reply_len = sizeof(reply) - 1;
 
+    log_cmd(cmd);
+    ret = wpa_ctrl_request(ctrl_conn[index], cmd, strlen(cmd), reply, &reply_len, NULL);
+    if (ret == -2) {
+        ALOGD("'%s' command timed out.\n", cmd);
+        /* unblocks the monitor receive socket for termination */
+        TEMP_FAILURE_RETRY(write(exit_sockets[index][0], "T", 1));
+        return -2;
+    } else if (ret < 0 || strncmp(reply, "FAIL", 4) == 0) {
+        LOGI("REPLY: FAIL\n");
+        return -1;
+    }
+
+    log_reply(reply, &reply_len);
+
+    reply[reply_len] = '\0';
+    ALOGE("%s", reply);
+
+    pos = reply;
+    while (*pos != '\0' && *pos != '\n')
+        pos++;
+    *pos = '\0';
+    strlcpy(addr, reply, addr_len);
+    return 0;
+}
+
+int wifi_get_AP_channel_list(char *addr, size_t *addr_len)
+{
+   char  *pos, reply[1024];
+   size_t reply_len;
+   int ret, index = PRIMARY;
+   char *cmd = "AP-CHAN-LIST";
+
+    if (ctrl_conn[index] == NULL) {
+        ALOGV("Not connected to hostapd - \"%s\" command dropped.\n", cmd);
+        return -1;
+    }
+
+    reply_len = sizeof(reply) - 1;
     log_cmd(cmd);
     ret = wpa_ctrl_request(ctrl_conn[index], cmd, strlen(cmd), reply, &reply_len, NULL);
     if (ret == -2) {

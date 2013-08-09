@@ -754,14 +754,6 @@ audio_io_handle_t AudioPolicyManagerBase::getOutput(AudioSystem::stream_type str
         addOutput(output, outputDesc);
         if (outputDesc->mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) {
             mMusicOffloadOutput = true;
-
-#ifdef MRFLD_AUDIO
-            // Informs primary HAL that a compressed output will be started
-            AudioParameter param;
-            param.addInt(String8(AudioParameter::keyStreamFlags),
-                         AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD);
-            mpClientInterface->setParameters(0, param.toString(), 0);
-#endif
         }
         ALOGV("getOutput() returns direct output %d", output);
         return output;
@@ -924,13 +916,10 @@ status_t AudioPolicyManagerBase::startOutput(audio_io_handle_t output,
        mIsDirectOutputActive = true;
     }
     if (outputDesc->mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) {
-
-#ifndef MRFLD_AUDIO
        // Informs primary HAL that a compressed output will be started
        AudioParameter param;
        param.addInt(String8(AudioParameter::keyStreamFlags), AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD);
        mpClientInterface->setParameters(0, param.toString(), 0);
-#endif
        // Stores the current audio sessionId for use in gapless offlaoded playback.
        mMusicOffloadSessionId = session;
     }
@@ -1017,16 +1006,12 @@ status_t AudioPolicyManagerBase::stopOutput(audio_io_handle_t output,
     }
 
     if (outputDesc->mRefCount[stream] > 0) {
-
-#ifndef MRFLD_AUDIO
         if (outputDesc->mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) {
-
            // Informs primary HAL that a compressed output stops
            AudioParameter param;
            param.addInt(String8(AudioParameter::keyStreamFlags), AUDIO_OUTPUT_FLAG_NONE);
            mpClientInterface->setParameters(0, param.toString(), 0);
         }
-#endif
 
         // decrement usage count of this stream on the output
         outputDesc->changeRefCount(stream, -1);
@@ -1105,12 +1090,6 @@ void AudioPolicyManagerBase::releaseOutput(audio_io_handle_t output)
 
         AudioOutputDescriptor *outputDesc = mOutputs.valueAt(index);
 
-#ifdef MRFLD_AUDIO
-            // Informs primary HAL that a compressed output stops
-            AudioParameter param;
-            param.addInt(String8(AudioParameter::keyStreamFlags), AUDIO_OUTPUT_FLAG_NONE);
-            mpClientInterface->setParameters(0, param.toString(), 0);
-#endif
         // Close offload output only if ref count is zero.
         if (outputDesc->refCount() == 0) {
             ALOGV("releaseOutput: closing output");
@@ -2318,7 +2297,7 @@ void AudioPolicyManagerBase::checkOutputForStrategy(routing_strategy strategy)
             AudioOutputDescriptor *desc = mOutputs.valueFor(srcOutputs[i]);
             if (desc->strategyRefCount(strategy) != 0) {
                 setStrategyMute(strategy, true, srcOutputs[i]);
-                setStrategyMute(strategy, false, srcOutputs[i], MUTE_TIME_MS, newDevice);
+                setStrategyMute(strategy, false, srcOutputs[i], desc->mLatency*2, newDevice);
             }
         }
 
@@ -2751,7 +2730,38 @@ audio_devices_t AudioPolicyManagerBase::getDeviceForStrategy(routing_strategy st
 
     case STRATEGY_MEDIA: {
 
+        // Follow STRATEGY_PHONE when all these conditions are met:
+        // - We are in call
+        // - ENFORCED_AUDIBLE streams can be muted (due to fallthrough)
+        // - No sink other than the primary is active
+        if (isInCall() &&
+            device == AUDIO_DEVICE_NONE &&
+            !(device & AUDIO_DEVICE_OUT_REMOTE_BGM_SINK)) {
+            ALOGV("%s-  superseding STRATEGY_MEDIA while in call, follow STRATEGY_PHONE",
+                  __FUNCTION__);
+            device = getDeviceForStrategy(STRATEGY_PHONE, false);
+            break;
+        }
+
         uint32_t device2 = 0;
+
+        switch (mForceUse[AudioSystem::FOR_MEDIA]) {
+            case AudioSystem::FORCE_SPEAKER:
+                device = mAvailableOutputDevices & AUDIO_DEVICE_OUT_SPEAKER;
+                  if (device)
+                    return device;
+                break;
+            case AudioSystem::FORCE_HEADPHONES:
+                device = mAvailableOutputDevices & AUDIO_DEVICE_OUT_WIRED_HEADPHONE;
+                if (device)
+                    return device;
+                 device = mAvailableOutputDevices & AUDIO_DEVICE_OUT_WIRED_HEADSET;
+                if (device)
+                    return device;
+                break;
+            default:
+                break;
+        }
 
 #ifdef BGM_ENABLED
         //If BGM devices are present, always force the output to it
