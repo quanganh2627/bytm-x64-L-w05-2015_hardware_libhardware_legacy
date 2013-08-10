@@ -1712,7 +1712,6 @@ bool AudioPolicyManagerBase::isOffloadSupported(uint32_t format,
     }
     // The LPE Music offload output is not free, return PCM
     if ((mMusicOffloadOutput) && (sessionId != mMusicOffloadSessionId)) {
-        ALOGV("isOffloadSupported: mMusicOffloadOutput = %d", mMusicOffloadOutput);
         ALOGV("isOffloadSupported: Already offload in progress, use non offload decoding");
         return false;
     }
@@ -1729,8 +1728,8 @@ bool AudioPolicyManagerBase::isOffloadSupported(uint32_t format,
         return false;
     }
 
-    if ((isVideo) || (isStreaming)) {
-        ALOGV("isOffloadSupported: Video or stream is enabled, returning false");
+    if ( isStreaming) {
+        ALOGV("isOffloadSupported: streaming is enabled, returning false");
         return false;
     }
 
