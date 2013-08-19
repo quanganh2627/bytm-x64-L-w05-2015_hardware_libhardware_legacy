@@ -2789,9 +2789,10 @@ audio_devices_t AudioPolicyManagerBase::getDeviceForStrategy(routing_strategy st
         // - We are in call
         // - ENFORCED_AUDIBLE streams can be muted (due to fallthrough)
         // - No sink other than the primary is active
+        // - BGM is not active
         if (isInCall() &&
             device == AUDIO_DEVICE_NONE &&
-            !(device & AUDIO_DEVICE_OUT_REMOTE_BGM_SINK)) {
+            !(device & AUDIO_DEVICE_OUT_REMOTE_BGM_SINK) && !(mIsBGMEnabled)) {
             ALOGV("%s-  superseding STRATEGY_MEDIA while in call, follow STRATEGY_PHONE",
                   __FUNCTION__);
             device = getDeviceForStrategy(STRATEGY_PHONE, false);
