@@ -1680,6 +1680,16 @@ bool AudioPolicyManagerBase::isOffloadSupported(
         return false;
     }
 
+    if ((config->channel_mask == 0) || (config->channel_mask > AUDIO_CHANNEL_OUT_7POINT1)) {
+        ALOGV("isOffloadSupported: Unsupported channels for offload");
+        return false;
+    }
+
+    if ((config->channel_mask > AUDIO_CHANNEL_OUT_STEREO) && !(LPAformat & MC_OFFLOAD)) {
+        ALOGV("isOffloadSupported: LPA property set to false for multichannel files");
+        return false;
+    }
+
     // If stream is not music or one of offload supported format, return false
     if (config->stream_type != AUDIO_STREAM_MUSIC ) {
         ALOGV("isOffloadSupported: return false as stream!=Music");
