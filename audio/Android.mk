@@ -23,10 +23,6 @@ LOCAL_SRC_FILES := \
     AudioPolicyCompatClient.cpp \
     audio_policy_hal.cpp
 
-ifeq ($(ENABLE_BACKGROUND_MUSIC),true)
-  LOCAL_CFLAGS += -DBGM_ENABLED
-endif
-
 ifeq ($(AUDIO_POLICY_TEST),true)
   LOCAL_CFLAGS += -DAUDIO_POLICY_TEST
 endif
@@ -80,22 +76,5 @@ include $(BUILD_SHARED_LIBRARY)
 #
 #include $(BUILD_SHARED_LIBRARY)
 
-include $(CLEAR_VARS)
-
-LOCAL_SRC_FILES := \
-    AudioHardwareInterface.cpp \
-    audio_hw_hal.cpp \
-    AudioHardwareStub.cpp
-
-
-LOCAL_MODULE := audio.primary.default
-LOCAL_MODULE_PATH := $(TARGET_OUT_SHARED_LIBRARIES)/hw
-LOCAL_MODULE_TAGS := optional
-
-LOCAL_STATIC_LIBRARIES := libmedia_helper
-LOCAL_SHARED_LIBRARIES := \
-    libcutils \
-    libutils \
-    libhardware_legacy
-
-include $(BUILD_SHARED_LIBRARY)
+#    AudioHardwareGeneric.cpp \
+#    AudioHardwareStub.cpp \

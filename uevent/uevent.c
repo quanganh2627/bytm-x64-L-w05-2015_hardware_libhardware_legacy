@@ -25,9 +25,7 @@
 #include <sys/un.h>
 #include <sys/queue.h>
 #include <linux/netlink.h>
-#include "utils/Log.h"
 
-#define LOG_TAG "libhardware_legacy"
 
 LIST_HEAD(uevent_handler_head, uevent_handler) uevent_handler_list;
 pthread_mutex_t uevent_handler_list_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -67,14 +65,6 @@ int uevent_init()
     return (fd > 0);
 }
 
-void uevent_exit()
-{
-    if (fd > 0) {
-        close(fd);
-        fd = -1;
-    }
-}
-
 int uevent_get_fd()
 {
     return fd;
@@ -102,14 +92,6 @@ int uevent_next_event(char* buffer, int buffer_length)
 
                 return count;
             } 
-        } else if ((fds.revents) & POLLERR) {
-            ALOGW("POLLERR: Error condition.");
-            uevent_exit();
-            int ret = 0;
-            do {
-                 ALOGI("Try to re-connect NETLINK_KOBJECT_UEVENT socket...");
-                 ret = uevent_init();
-            } while (ret != 1);
         }
     }
     

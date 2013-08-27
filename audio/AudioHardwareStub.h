@@ -42,7 +42,6 @@ public:
     virtual status_t    setParameters(const String8& keyValuePairs) { return NO_ERROR;}
     virtual String8     getParameters(const String8& keys);
     virtual status_t    getRenderPosition(uint32_t *dspFrames);
-    virtual status_t    flush();
 };
 
 class AudioStreamInStub : public AudioStreamIn {
@@ -59,8 +58,6 @@ public:
     virtual status_t    setParameters(const String8& keyValuePairs) { return NO_ERROR;}
     virtual String8     getParameters(const String8& keys);
     virtual unsigned int  getInputFramesLost() const { return 0; }
-    virtual status_t addAudioEffect(effect_handle_t effect) { return NO_ERROR; }
-    virtual status_t removeAudioEffect(effect_handle_t effect) { return NO_ERROR; }
 };
 
 class AudioHardwareStub : public  AudioHardwareBase
@@ -93,9 +90,6 @@ public:
                                 status_t *status,
                                 AudioSystem::audio_in_acoustics acoustics);
     virtual    void        closeInputStream(AudioStreamIn* in);
-
-    /** set the audio volume of fm rx playback. Range is between 0.0 and 1.0 */
-    virtual status_t    setFmRxVolume(float volume) { return NO_ERROR; }
 
 protected:
     virtual status_t    dump(int fd, const Vector<String16>& args);

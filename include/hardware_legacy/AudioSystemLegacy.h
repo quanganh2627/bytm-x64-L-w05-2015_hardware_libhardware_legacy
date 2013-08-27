@@ -243,38 +243,30 @@ public:
         DEVICE_OUT_AUX_DIGITAL = 0x400,
         DEVICE_OUT_ANLG_DOCK_HEADSET = 0x800,
         DEVICE_OUT_DGTL_DOCK_HEADSET = 0x1000,
-        DEVICE_OUT_DEFAULT = AUDIO_DEVICE_OUT_DEFAULT,
-        DEVICE_OUT_REMOTE_SUBMIX = 0x8000,
-        DEVICE_OUT_WIDI = 0x1000000,
+        DEVICE_OUT_DEFAULT = 0x8000,
         DEVICE_OUT_ALL = (DEVICE_OUT_EARPIECE | DEVICE_OUT_SPEAKER | DEVICE_OUT_WIRED_HEADSET |
                 DEVICE_OUT_WIRED_HEADPHONE | DEVICE_OUT_BLUETOOTH_SCO | DEVICE_OUT_BLUETOOTH_SCO_HEADSET |
                 DEVICE_OUT_BLUETOOTH_SCO_CARKIT | DEVICE_OUT_BLUETOOTH_A2DP | DEVICE_OUT_BLUETOOTH_A2DP_HEADPHONES |
                 DEVICE_OUT_BLUETOOTH_A2DP_SPEAKER | DEVICE_OUT_AUX_DIGITAL |
-                DEVICE_OUT_ANLG_DOCK_HEADSET | DEVICE_OUT_DGTL_DOCK_HEADSET | DEVICE_OUT_REMOTE_SUBMIX | DEVICE_OUT_WIDI |
+                DEVICE_OUT_ANLG_DOCK_HEADSET | DEVICE_OUT_DGTL_DOCK_HEADSET |
                 DEVICE_OUT_DEFAULT),
         DEVICE_OUT_ALL_A2DP = (DEVICE_OUT_BLUETOOTH_A2DP | DEVICE_OUT_BLUETOOTH_A2DP_HEADPHONES |
                 DEVICE_OUT_BLUETOOTH_A2DP_SPEAKER),
 
         // input devices
-        DEVICE_IN_COMMUNICATION = AUDIO_DEVICE_IN_COMMUNICATION,
-        DEVICE_IN_AMBIENT = AUDIO_DEVICE_IN_AMBIENT,
-        DEVICE_IN_BUILTIN_MIC = AUDIO_DEVICE_IN_BUILTIN_MIC,
-        DEVICE_IN_BLUETOOTH_SCO_HEADSET = AUDIO_DEVICE_IN_BLUETOOTH_SCO_HEADSET,
-        DEVICE_IN_WIRED_HEADSET = AUDIO_DEVICE_IN_WIRED_HEADSET,
-        DEVICE_IN_AUX_DIGITAL = AUDIO_DEVICE_IN_AUX_DIGITAL,
-        DEVICE_IN_VOICE_CALL = AUDIO_DEVICE_IN_VOICE_CALL,
-        DEVICE_IN_BACK_MIC = AUDIO_DEVICE_IN_BACK_MIC,
-        DEVICE_IN_DEFAULT = AUDIO_DEVICE_IN_DEFAULT,
+        DEVICE_IN_COMMUNICATION = 0x10000,
+        DEVICE_IN_AMBIENT = 0x20000,
+        DEVICE_IN_BUILTIN_MIC = 0x40000,
+        DEVICE_IN_BLUETOOTH_SCO_HEADSET = 0x80000,
+        DEVICE_IN_WIRED_HEADSET = 0x100000,
+        DEVICE_IN_AUX_DIGITAL = 0x200000,
+        DEVICE_IN_VOICE_CALL = 0x400000,
+        DEVICE_IN_BACK_MIC = 0x800000,
+        DEVICE_IN_DEFAULT = 0x80000000,
 
         DEVICE_IN_ALL = (DEVICE_IN_COMMUNICATION | DEVICE_IN_AMBIENT | DEVICE_IN_BUILTIN_MIC |
                 DEVICE_IN_BLUETOOTH_SCO_HEADSET | DEVICE_IN_WIRED_HEADSET | DEVICE_IN_AUX_DIGITAL |
-                DEVICE_IN_VOICE_CALL | DEVICE_IN_BACK_MIC | DEVICE_IN_DEFAULT),
-
-        //devices not supported for codec offload
-        DEVICE_OUT_NON_OFFLOAD = (DEVICE_OUT_ALL & ~(DEVICE_OUT_SPEAKER |
-                                  DEVICE_OUT_WIRED_HEADSET |
-                                  DEVICE_OUT_WIRED_HEADPHONE |
-                                  DEVICE_OUT_EARPIECE))
+                DEVICE_IN_VOICE_CALL | DEVICE_IN_BACK_MIC | DEVICE_IN_DEFAULT)
     };
 
     // request to open a direct output with getOutput() (by opposition to sharing an output with other AudioTracks)
@@ -296,7 +288,6 @@ public:
         FORCE_ANALOG_DOCK,
         FORCE_DIGITAL_DOCK,
         FORCE_NO_BT_A2DP,
-        FORCE_WIDI,
         FORCE_SYSTEM_ENFORCED,
         NUM_FORCE_CONFIG,
         FORCE_DEFAULT = FORCE_NONE
@@ -331,10 +322,16 @@ public:
 
 #if 1
     static bool isOutputDevice(audio_devices device) {
-        return audio_is_output_device((audio_devices_t)device);
+        if ((popcount(device) == 1) && ((device & ~DEVICE_OUT_ALL) == 0))
+             return true;
+         else
+             return false;
     }
     static bool isInputDevice(audio_devices device) {
-        return audio_is_input_device((audio_devices_t)device);
+        if ((popcount(device) == 1) && ((device & ~DEVICE_IN_ALL) == 0))
+             return true;
+         else
+             return false;
     }
     static bool isA2dpDevice(audio_devices device) {
         return audio_is_a2dp_device((audio_devices_t)device);

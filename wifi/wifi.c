@@ -22,8 +22,6 @@
 #include <sys/socket.h>
 #include <unistd.h>
 #include <poll.h>
-#include <pthread.h>
-#include <assert.h>
 
 #include "hardware_legacy/wifi.h"
 #include "libwpa_client/wpa_ctrl.h"
@@ -89,11 +87,6 @@ static char primary_iface[PROPERTY_VALUE_MAX];
 #define WIFI_DRIVER_FW_PATH_PARAM	"/sys/module/wlan/parameters/fwpath"
 #endif
 
-#define WIFI_MODULE_43241_OPMODE	"/sys/module/bcm43241/parameters/op_mode"
-#define WIFI_MODULE_4334_OPMODE		"/sys/module/bcm4334/parameters/op_mode"
-#define WIFI_MODULE_4334X_OPMODE		"/sys/module/bcm4334x/parameters/op_mode"
-#define WIFI_MODULE_4335_OPMODE		"/sys/module/bcm4335/parameters/op_mode"
-
 #define WIFI_DRIVER_LOADER_DELAY	1000000
 
 static const char IFACE_DIR[]           = "/data/system/wpa_supplicant";
@@ -115,19 +108,12 @@ static const char P2P_CONFIG_FILE[]     = "/data/misc/wifi/p2p_supplicant.conf";
 static const char CONTROL_IFACE_PATH[]  = "/data/misc/wifi/sockets";
 static const char MODULE_FILE[]         = "/proc/modules";
 
-/*
- * This gets defined by the script load_bcmdriver in
- * vendor/intel/common/wifi/bcm_specific/
- */
-static const char BCM_PROP_CHIP[]	= "wlan.bcm.chip";
-
 static const char SUPP_ENTROPY_FILE[]   = WIFI_ENTROPY_FILE;
 static unsigned char dummy_key[21] = { 0x02, 0x11, 0xbe, 0x33, 0x43, 0x35,
                                        0x68, 0x47, 0x84, 0x99, 0xa9, 0x2b,
                                        0x1c, 0xd3, 0xee, 0xff, 0xf1, 0xe2,
                                        0xf3, 0xf4, 0xf5 };
 
-static pthread_mutex_t suppl_mutex = PTHREAD_MUTEX_INITIALIZER;
 /* Is either SUPPLICANT_NAME or P2P_SUPPLICANT_NAME */
 static char supplicant_name[PROPERTY_VALUE_MAX];
 /* Is either SUPP_PROP_NAME or P2P_PROP_NAME */
@@ -398,13 +384,10 @@ int update_ctrl_interface(const char *config_file) {
         int ilen = 0;
         int mlen = strlen(ifc);
         int nwrite;
-
-        /* Get file iface name length */
-        while (((ilen + (iptr - pbuf)) < nread) && (iptr[ilen] != '\n'))
-            ilen++;
-
-        if (mlen != ilen || strncmp(ifc, iptr, mlen) != 0) {
+        if (strncmp(ifc, iptr, mlen) != 0) {
             ALOGE("ctrl_interface != %s", ifc);
+            while (((ilen + (iptr - pbuf)) < nread) && (iptr[ilen] != '\n'))
+                ilen++;
             mlen = ((ilen >= mlen) ? ilen : mlen) + 1;
             memmove(iptr + mlen, iptr + ilen + 1, nread - (iptr + ilen + 1 - pbuf));
             memset(iptr, '\n', mlen);
@@ -555,7 +538,7 @@ int wifi_start_supplicant(int p2p_supported)
     }
 
     /* Check whether already running */
-    if (property_get(supplicant_prop_name, supp_status, NULL)
+    if (property_get(supplicant_name, supp_status, NULL)
             && strcmp(supp_status, "running") == 0) {
         return 0;
     }
@@ -625,9 +608,6 @@ int wifi_stop_supplicant(int p2p_supported)
 {
     char supp_status[PROPERTY_VALUE_MAX] = {'\0'};
     int count = 50; /* wait at most 5 seconds for completion */
-    char pidpropname[] = "wpa_supplicant.pid";
-    char pidpropval[PROPERTY_VALUE_MAX];
-    int ret, pid;
 
     if (p2p_supported) {
         strcpy(supplicant_name, P2P_SUPPLICANT_NAME);
@@ -643,29 +623,6 @@ int wifi_stop_supplicant(int p2p_supported)
         return 0;
     }
 
-    /* Shutdown wpa_supplicant with SIGTERM signal instead of
-     * SIGKILL sent by ctl.stop system command .
-     * SIGTERM allows to deinit properly all the wifi interfaces,
-     * specially p2p0 and p2p-p2p0-X virtual interfaces. It fixes
-     * further p2p connections after an Android framework softreboot
-     */
-
-    property_get(pidpropname, pidpropval, "-1");
-    pid = atoi(pidpropval);
-
-    LOGD("wpa_supplicant pid %d", pid);
-    if (pid > 0) {
-        /* try a nice wpa_supplicant shutdown */
-        ret = kill(pid, SIGTERM);
-        if (ret == 0) {
-            waitpid(pid, NULL, 0);
-            usleep(800000);
-            LOGD("wpa_supplicant pid %d stopped with SIGTERM", pid);
-            property_set(pidpropname, "");
-        } else {
-            LOGE("wpa_supplicant pid %d failed to stop", pid);
-        }
-    }
     property_set("ctl.stop", supplicant_name);
     sched_yield();
 
@@ -738,44 +695,6 @@ int wifi_connect_to_supplicant(const char *ifname)
     }
 }
 
-void log_cmd(const char *cmd)
-{
-    if (strstr (cmd, "SET_NETWORK") && strstr(cmd, "password")) {
-        char *pbuf = malloc(strlen(cmd) + 1);
-        if (pbuf) {
-            strncpy(pbuf, cmd, strlen(cmd) + 1);
-            pbuf[strlen(cmd)]='\0';
-            char *p = strchr(pbuf, '\"');
-            if (p)
-                *p = '\0';
-            LOGI("CMD: %s\n", pbuf);
-        }
-        free(pbuf);
-    }
-    else
-        LOGI("CMD: %s\n", cmd);
-}
-
-void log_reply(char *reply, size_t *reply_len)
-{
-    char replyLocal[*reply_len];
-    char delims[] = "\n";
-    char *result = NULL;
-
-    strncpy(replyLocal, reply, *reply_len);
-
-    if (*reply_len > 0 && replyLocal[*reply_len-1] == '\n')
-        replyLocal[*reply_len-1] = '\0';
-    else
-        replyLocal[*reply_len] = '\0';
-
-    result = strtok(replyLocal , delims );
-    while( result != NULL ) {
-        LOGI("REPLY: %s\n", result);
-        result = strtok( NULL, delims );
-    }
-}
-
 int wifi_send_command(int index, const char *cmd, char *reply, size_t *reply_len)
 {
     int ret;
@@ -784,7 +703,6 @@ int wifi_send_command(int index, const char *cmd, char *reply, size_t *reply_len
         ALOGV("Not connected to wpa_supplicant - \"%s\" command dropped.\n", cmd);
         return -1;
     }
-    log_cmd(cmd);
     ret = wpa_ctrl_request(ctrl_conn[index], cmd, strlen(cmd), reply, reply_len, NULL);
     if (ret == -2) {
         ALOGD("'%s' command timed out.\n", cmd);
@@ -792,13 +710,11 @@ int wifi_send_command(int index, const char *cmd, char *reply, size_t *reply_len
         TEMP_FAILURE_RETRY(write(exit_sockets[index][0], "T", 1));
         return -2;
     } else if (ret < 0 || strncmp(reply, "FAIL", 4) == 0) {
-        LOGI("REPLY: FAIL\n");
         return -1;
     }
     if (strncmp(cmd, "PING", 4) == 0) {
         reply[*reply_len] = '\0';
     }
-    log_reply(reply, reply_len);
     return 0;
 }
 
@@ -888,7 +804,7 @@ int wifi_wait_on_socket(int index, char *buf, size_t buflen)
             memmove(buf, match+1, nread+1);
         }
     }
-    LOGI("EVENT: %s\n", buf);
+
     return nread;
 }
 
@@ -928,8 +844,6 @@ void wifi_close_supplicant_connection(const char *ifname)
 {
     char supp_status[PROPERTY_VALUE_MAX] = {'\0'};
     int count = 50; /* wait at most 5 seconds to ensure init has stopped stupplicant */
-    LOGD("Close connection to supplicant\n");
-    pthread_mutex_lock(&suppl_mutex);
 
     if (is_primary_interface(ifname)) {
         wifi_close_sockets(PRIMARY);
@@ -941,20 +855,16 @@ void wifi_close_supplicant_connection(const char *ifname)
         /* p2p sockets are closed after the monitor thread
          * receives the terminate on the exit socket
          */
-        pthread_mutex_unlock(&suppl_mutex);
         return;
     }
 
     while (count-- > 0) {
         if (property_get(supplicant_prop_name, supp_status, NULL)) {
-            if (strcmp(supp_status, "stopped") == 0) {
-                pthread_mutex_unlock(&suppl_mutex);
+            if (strcmp(supp_status, "stopped") == 0)
                 return;
-	    }
         }
         usleep(100000);
     }
-    pthread_mutex_unlock(&suppl_mutex);
 }
 
 int wifi_command(const char *ifname, const char *command, char *reply, size_t *reply_len)
@@ -968,299 +878,35 @@ int wifi_command(const char *ifname, const char *command, char *reply, size_t *r
 
 const char *wifi_get_fw_path(int fw_type)
 {
-    char bcm_prop_chip[PROPERTY_VALUE_MAX];
-
     switch (fw_type) {
     case WIFI_GET_FW_PATH_STA:
-	if (property_get(BCM_PROP_CHIP, bcm_prop_chip, NULL)) {
-	    if (strstr(bcm_prop_chip, "43241"))
-		return WIFI_DRIVER_43241_FW_PATH_STA;
-	    else if (strstr(bcm_prop_chip, "4334"))
-		return WIFI_DRIVER_4334_FW_PATH_STA;
-	    else if (strstr(bcm_prop_chip, "4335"))
-		return WIFI_DRIVER_4335_FW_PATH_STA;
-	}
-	else
-	    return WIFI_DRIVER_FW_PATH_STA;
+        return WIFI_DRIVER_FW_PATH_STA;
     case WIFI_GET_FW_PATH_AP:
-	if (property_get(BCM_PROP_CHIP, bcm_prop_chip, NULL)) {
-	    if (strstr(bcm_prop_chip, "43241"))
-		return WIFI_DRIVER_43241_FW_PATH_AP;
-	    else if (strstr(bcm_prop_chip, "4334"))
-		return WIFI_DRIVER_4334_FW_PATH_AP;
-	    else if (strstr(bcm_prop_chip, "4335"))
-		return WIFI_DRIVER_4335_FW_PATH_AP;
-	}
-	else
-	    return WIFI_DRIVER_FW_PATH_AP;
+        return WIFI_DRIVER_FW_PATH_AP;
     case WIFI_GET_FW_PATH_P2P:
-	if (property_get(BCM_PROP_CHIP, bcm_prop_chip, NULL)) {
-	    if (strstr(bcm_prop_chip, "43241"))
-		return WIFI_DRIVER_43241_FW_PATH_P2P;
-	    else if (strstr(bcm_prop_chip, "4334"))
-		return WIFI_DRIVER_4334_FW_PATH_P2P;
-	    else if (strstr(bcm_prop_chip, "4335"))
-		return WIFI_DRIVER_4335_FW_PATH_P2P;
-	}
-	else
-	    return WIFI_DRIVER_FW_PATH_P2P;
-    default:
-	    ALOGE("Unknown firmware type (%d)", fw_type);
+        return WIFI_DRIVER_FW_PATH_P2P;
     }
-
     return NULL;
-}
-
-static int file_exist(char *filename)
-{
-    struct stat buffer;
-    return (stat(filename, &buffer) == 0);
-}
-
-static int write_to_file(const char *path, const char *data, size_t len)
-{
-    int fd = -1;
-    int ret = 0;
-
-    assert(path);
-    assert(data);
-
-    fd = TEMP_FAILURE_RETRY(open(path, O_WRONLY));
-    if (fd < 0) {
-	ALOGE("Failed to open %s (%s)",
-	      path, strerror(errno));
-	return -errno;
-    }
-
-    if (TEMP_FAILURE_RETRY(write(fd, data, len)) != (int) len) {
-	ALOGE("Failed to write %s in %s (%s)",
-	      data, path, strerror(errno));
-	ret = -errno;
-    }
-
-    close(fd);
-    return ret;
-}
-
-/* Wifi_Hotspot: This function connects to hostapd daemon  */
-int wifi_connect_to_hostapd()
-{
-    char ifname[256];
-    int index = PRIMARY;
-
-    /* Clear out any stale socket files that might be left over. */
-    wifi_wpa_ctrl_cleanup();
-
-    /* For connection with the ctrl_interface of hostap daemon,
-       the fixed value of socket name needs to be defined. And We will
-       use "wpa_wlan1" as socket name for hostap daemon while
-       supplicant uses "wpa_wlan0" for this  */
-    strcpy(ifname, "wlan1");
-
-    ctrl_conn[index] = wpa_ctrl_open(ifname);
-    if (ctrl_conn[index] == NULL) {
-        ALOGE("Unable to open connection to ctrl_conn of hostapd on \"%s\": %s",
-             ifname, strerror(errno));
-        return -1;
-    }
-    monitor_conn[index] = wpa_ctrl_open(ifname);
-    if (monitor_conn[index] == NULL) {
-        ALOGE("Unable to open connection to monitor_conn of hostapd on %s", ifname);
-        wpa_ctrl_close(ctrl_conn[index]);
-        ctrl_conn[index] = NULL;
-        return -1;
-    }
-    if (wpa_ctrl_attach(monitor_conn[index]) != 0) {
-        ALOGE("Unable to attatch  connection to monitor_conn of hostapd on %s",ifname);
-        wpa_ctrl_close(monitor_conn[index]);
-        wpa_ctrl_close(ctrl_conn[index]);
-        ctrl_conn[index] = monitor_conn[index] = NULL;
-        return -1;
-    }
-
-    if (socketpair(AF_UNIX, SOCK_STREAM, 0, exit_sockets[index]) == -1) {
-        ALOGE("Unable to socketpair to hostapd on %s", ifname);
-        wpa_ctrl_close(monitor_conn[index]);
-        wpa_ctrl_close(ctrl_conn[index]);
-        ctrl_conn[index] = monitor_conn[index] = NULL;
-        return -1;
-    }
-
-    return 0;
-}
-
-void wifi_close_hostapd_connection()
-{
-    int index = PRIMARY;
-
-    LOGD("Wifi_Hotspot: Close connection to hostapd\n");
-    if (ctrl_conn[index] != NULL) {
-        wpa_ctrl_close(ctrl_conn[index]);
-        ctrl_conn[index] = NULL;
-    }
-
-    if (monitor_conn[index] != NULL) {
-        wpa_ctrl_close(monitor_conn[index]);
-        monitor_conn[index] = NULL;
-    }
-
-    if (exit_sockets[index][0] >= 0) {
-        close(exit_sockets[index][0]);
-        exit_sockets[index][0] = -1;
-    }
-
-    if (exit_sockets[index][1] >= 0) {
-        close(exit_sockets[index][1]);
-        exit_sockets[index][1] = -1;
-    }
-}
-
-int wifi_get_AP_station_list(char *reply, size_t *reply_len)
-{
-    char addr[32], cmd[64];
-
-    reply[0] = '\0';
-
-    if (wifi_get_AP_station("STA-FIRST", addr, sizeof(addr))){
-       ALOGE("Wifi_Hotspot: wifi_get_AP_station_list: STA_FIRST: No connected Station");
-       return -1;
-    }
-
-    do {
-       strcat(reply, addr);
-       strcat(reply, " ");
-       snprintf(cmd, sizeof(cmd), "STA-NEXT %s", addr);
-    } while ( wifi_get_AP_station(cmd, addr, sizeof(addr)) == 0);
-
-    *reply_len = strlen(reply);
-    reply[*reply_len] = '\0';
-    ALOGV(" Connected stations in Hotspot : %s", reply);
-
-    return 0;
-}
-
-int wifi_get_AP_station(char *cmd, char *addr, size_t addr_len)
-{
-   char  *pos, reply[1024];
-   size_t reply_len;
-   int ret, index = PRIMARY;
-
-    if (ctrl_conn[index] == NULL) {
-        ALOGV("Not connected to hostapd - \"%s\" command dropped.\n", cmd);
-        return -1;
-    }
-
-    reply_len = sizeof(reply) - 1;
-
-    log_cmd(cmd);
-    ret = wpa_ctrl_request(ctrl_conn[index], cmd, strlen(cmd), reply, &reply_len, NULL);
-    if (ret == -2) {
-        ALOGD("'%s' command timed out.\n", cmd);
-        /* unblocks the monitor receive socket for termination */
-        TEMP_FAILURE_RETRY(write(exit_sockets[index][0], "T", 1));
-        return -2;
-    } else if (ret < 0 || strncmp(reply, "FAIL", 4) == 0) {
-        LOGI("REPLY: FAIL\n");
-        return -1;
-    }
-
-    log_reply(reply, &reply_len);
-
-    reply[reply_len] = '\0';
-    ALOGE("%s", reply);
-
-    pos = reply;
-    while (*pos != '\0' && *pos != '\n')
-        pos++;
-    *pos = '\0';
-    strlcpy(addr, reply, addr_len);
-    return 0;
-}
-
-int wifi_get_AP_channel_list(char *addr, size_t *addr_len)
-{
-   char  *pos, reply[1024];
-   size_t reply_len;
-   int ret, index = PRIMARY;
-   char *cmd = "AP-CHAN-LIST";
-
-    if (ctrl_conn[index] == NULL) {
-        ALOGV("Not connected to hostapd - \"%s\" command dropped.\n", cmd);
-        return -1;
-    }
-
-    reply_len = sizeof(reply) - 1;
-    log_cmd(cmd);
-    ret = wpa_ctrl_request(ctrl_conn[index], cmd, strlen(cmd), reply, &reply_len, NULL);
-    if (ret == -2) {
-        ALOGD("'%s' command timed out.\n", cmd);
-        /* unblocks the monitor receive socket for termination */
-        TEMP_FAILURE_RETRY(write(exit_sockets[index][0], "T", 1));
-        return -2;
-    } else if (ret < 0 || strncmp(reply, "FAIL", 4) == 0) {
-        LOGI("REPLY: FAIL\n");
-        return -1;
-    }
-
-    log_reply(reply, &reply_len);
-
-    reply[reply_len] = '\0';
-    ALOGE("%s", reply);
-
-    pos = reply;
-    while (*pos != '\0' && *pos != '\n')
-        pos++;
-    *pos = '\0';
-    strlcpy(addr, reply, addr_len);
-    return 0;
 }
 
 int wifi_change_fw_path(const char *fwpath)
 {
-    return write_to_file(WIFI_DRIVER_FW_PATH_PARAM,
-			 fwpath, strlen(fwpath) + 1);
-}
+    int len;
+    int fd;
+    int ret = 0;
 
-int wifi_switch_driver_mode(int mode)
-{
-    char mode_str[8];
-    char bcm_prop_chip[PROPERTY_VALUE_MAX]="";
-
-    /**
-     * BIT(0), BIT(1),.. come from dhd.h in the driver code, and we need to
-     * stay aligned with their definition.
-     *
-     * TODO:
-     *   - Find a way to include dhd.h and use the values from there directly to
-     *     prevent any problems in future modifications of the ABI.
-     */
-    switch (mode) {
-    case WIFI_STA_MODE:
-	snprintf(mode_str, sizeof(mode_str), "%u\n", BIT(0) | BIT(2) | BIT(4));
-	break;
-    case WIFI_AP_MODE:
-	snprintf(mode_str, sizeof(mode_str), "%u\n", BIT(1));
-	break;
-    case WIFI_P2P_MODE:
-	snprintf(mode_str, sizeof(mode_str), "%u\n", BIT(2));
-	break;
-    default:
-	ALOGE("wifi_switch_driver_mode: invalid mode %ud", mode);
-	return -EINVAL;
-    }
-
-    ALOGE("wifi_switch_driver_mode:  %s switching FW opmode", BCM_PROP_CHIP);
-    if (file_exist(WIFI_MODULE_43241_OPMODE))
-        return write_to_file(WIFI_MODULE_43241_OPMODE, mode_str, strlen(mode_str));
-    else if (file_exist(WIFI_MODULE_4334_OPMODE))
-        return write_to_file(WIFI_MODULE_4334_OPMODE, mode_str, strlen(mode_str));
-    else if (file_exist(WIFI_MODULE_4334X_OPMODE))
-        return write_to_file(WIFI_MODULE_4334X_OPMODE, mode_str, strlen(mode_str));
-    else if (file_exist(WIFI_MODULE_4335_OPMODE))
-        return write_to_file(WIFI_MODULE_4335_OPMODE, mode_str, strlen(mode_str));
-    else {
-        ALOGE("wifi_switch_driver_mode: failed to switch opmode file not found", BCM_PROP_CHIP);
+    if (!fwpath)
+        return ret;
+    fd = TEMP_FAILURE_RETRY(open(WIFI_DRIVER_FW_PATH_PARAM, O_WRONLY));
+    if (fd < 0) {
+        ALOGE("Failed to open wlan fw path param (%s)", strerror(errno));
         return -1;
     }
+    len = strlen(fwpath) + 1;
+    if (TEMP_FAILURE_RETRY(write(fd, fwpath, len)) != len) {
+        ALOGE("Failed to write wlan fw path param (%s)", strerror(errno));
+        ret = -1;
+    }
+    close(fd);
+    return ret;
 }
-

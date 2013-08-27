@@ -58,7 +58,6 @@ public:
     uint32_t            device() { return mDevice; }
     int                 getId()  { return mId; }
     virtual status_t    getRenderPosition(uint32_t *dspFrames);
-    virtual status_t    flush();
 
 private:
     AudioDumpInterface *mInterface;
