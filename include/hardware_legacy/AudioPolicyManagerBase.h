@@ -25,6 +25,8 @@
 #include <utils/SortedVector.h>
 #include <hardware_legacy/AudioPolicyInterface.h>
 
+// Change it according to policy. Currently set to 20 secs
+#define OFFLOAD_MIN_FILE_DURATION 20 //seconds
 
 namespace android_audio_legacy {
     using android::KeyedVector;
@@ -133,9 +135,22 @@ public:
         virtual status_t setEffectEnabled(int id, bool enabled);
 
         virtual bool isStreamActive(int stream, uint32_t inPastMs = 0) const;
+        // return whether a stream is playing remotely, override to change the definition of
+        //   local/remote playback, used for instance by notification manager to not make
+        //   media players lose audio focus when not playing locally
+        virtual bool isStreamActiveRemotely(int stream, uint32_t inPastMs = 0) const;
         virtual bool isSourceActive(audio_source_t source) const;
 
         virtual status_t dump(int fd);
+
+        virtual bool isOffloadSupported(uint32_t format,
+                                         audio_stream_type_t stream,
+                                         uint32_t samplingRate,
+                                         uint32_t bitRate,
+                                         int64_t duration,
+                                         int sessionId,
+                                         bool hasVideo = false,
+                                         bool hasStreaming = false);
 
 protected:
 
@@ -144,8 +159,10 @@ protected:
             STRATEGY_PHONE,
             STRATEGY_SONIFICATION,
             STRATEGY_SONIFICATION_RESPECTFUL,
+            STRATEGY_SONIFICATION_LOCAL,
             STRATEGY_DTMF,
             STRATEGY_ENFORCED_AUDIBLE,
+            STRATEGY_BACKGROUND_MUSIC,
             NUM_STRATEGIES
         };
 
@@ -241,16 +258,19 @@ protected:
 
             status_t    dump(int fd);
 
-            audio_devices_t device();
-            void changeRefCount(AudioSystem::stream_type, int delta);
-            uint32_t refCount();
-            uint32_t strategyRefCount(routing_strategy strategy);
-            bool isUsedByStrategy(routing_strategy strategy) { return (strategyRefCount(strategy) != 0);}
+            audio_devices_t device() const;
+            void changeRefCount(AudioSystem::stream_type stream, int delta);
             bool isDuplicated() const { return (mOutput1 != NULL && mOutput2 != NULL); }
             audio_devices_t supportedDevices();
             uint32_t latency();
             bool sharesHwModuleWith(const AudioOutputDescriptor *outputDesc);
-            bool isActive(uint32_t inPastMs) const;
+            bool isActive(uint32_t inPastMs = 0) const;
+            bool isStreamActive(AudioSystem::stream_type stream,
+                                uint32_t inPastMs = 0,
+                                nsecs_t sysTime = 0) const;
+            bool isStrategyActive(routing_strategy strategy,
+                             uint32_t inPastMs = 0,
+                             nsecs_t sysTime = 0) const;
 
             audio_io_handle_t mId;              // output handle
             uint32_t mSamplingRate;             //
@@ -268,6 +288,9 @@ protected:
             const IOProfile *mProfile;          // I/O profile this output derives from
             bool mStrategyMutedByDevice[NUM_STRATEGIES]; // strategies muted because of incompatible
                                                 // device selection. See checkDeviceMuteStrategies()
+            uint32_t mDirectOpenCount; // number of clients using this output (direct outputs only)
+
+            bool mForceRouting; // Next routing for this output will be forced as current device routed is null
         };
 
         // descriptor for audio inputs. Used to maintain current configuration of each opened audio input
@@ -286,6 +309,7 @@ protected:
             uint32_t mRefCount;                         // number of AudioRecord clients using this output
             int      mInputSource;                      // input source selected by application (mediarecorder.h)
             const IOProfile *mProfile;                  // I/O profile this output derives from
+            bool     mHasStarted;                       // to indicate that the audiorecord has started
         };
 
         // stream descriptor used for volume control
@@ -294,7 +318,7 @@ protected:
         public:
             StreamDescriptor();
 
-            int getVolumeIndex(audio_devices_t device);
+            int getVolumeIndex(audio_devices_t device) const;
             void dump(int fd);
 
             int mIndexMin;      // min volume index
@@ -358,8 +382,11 @@ protected:
 
         // compute the actual volume for a given stream according to the requested index and a particular
         // device
-        virtual float computeVolume(int stream, int index, audio_io_handle_t output, audio_devices_t device);
+        virtual float computeVolume(int stream, int index, audio_devices_t device);
 
+        // Returns the stream volume
+        float getVolume(int stream, audio_devices_t device);
+ 
         // check that volume change is permitted, compute and send new volume to audio hardware
         status_t checkAndSetVolume(int stream, int index, audio_io_handle_t output, audio_devices_t device, int delayMs = 0, bool force = false);
 
@@ -385,10 +412,14 @@ protected:
         void handleIncallSonification(int stream, bool starting, bool stateChange);
 
         // true if device is in a telephony or VoIP call
-        virtual bool isInCall();
+        virtual bool isInCall() const;
 
         // true if given state represents a device in a telephony or VoIP call
-        virtual bool isStateInCall(int state);
+        static bool isStateInCall(int state);
+        // true if sonification strategy is of type SONIFICATION, SONIFICATION_RESPECTFUL or SONIFICATION_LOCAL
+        static bool isSonificationStrategy(routing_strategy strategy);
+        // true if stream is of type SONIFICATION, SONIFICATION_RESPECTFUL or SONIFICATION_LOCAL
+        static bool isStreamOfTypeSonification(AudioSystem::stream_type stream);
 
         // when a device is connected, checks if an open output can be routed
         // to this device. If none is open, tries to open one of the available outputs.
@@ -416,7 +447,7 @@ protected:
         void checkA2dpSuspend();
 
         // returns the A2DP output handle if it is open or 0 otherwise
-        audio_io_handle_t getA2dpOutput();
+        audio_io_handle_t getA2dpOutput() const;
 
         // selects the most appropriate device on output for current state
         // must be called every time a condition that affects the device choice for a given output is
@@ -473,6 +504,8 @@ protected:
 
         audio_io_handle_t selectOutput(const SortedVector<audio_io_handle_t>& outputs,
                                        AudioSystem::output_flags flags);
+        audio_io_handle_t selectDirectOutput(const SortedVector<audio_io_handle_t>& outputs,
+                                       AudioSystem::output_flags flags);
         IOProfile *getInputProfile(audio_devices_t device,
                                    uint32_t samplingRate,
                                    uint32_t format,
@@ -494,17 +527,29 @@ protected:
         void loadFormats(char *name, IOProfile *profile);
         void loadOutChannels(char *name, IOProfile *profile);
         void loadInChannels(char *name, IOProfile *profile);
-        status_t loadOutput(cnode *root,  HwModule *module);
-        status_t loadInput(cnode *root,  HwModule *module);
+        status_t loadOutput(const cnode *root,  HwModule *module);
+        status_t loadInput(const cnode *root,  HwModule *module);
         void loadHwModule(cnode *root);
         void loadHwModules(cnode *root);
+        void loadCustomProperties(const cnode *root);
         void loadGlobalConfig(cnode *root);
         status_t loadAudioPolicyConfig(const char *path);
         void defaultAudioPolicyConfig(void);
+        // Custom properties accessors
+        // if the accessor fails, the value parameter is unchanged
+        bool getCustomPropertyAsString(const String8 &name, String8 &value) const;
+        bool getCustomPropertyAsLong(const String8 &name, long &value) const;
+        bool getCustomPropertyAsULong(const String8 &name, unsigned long &value) const;
+        bool getCustomPropertyAsFloat(const String8 &name, float &value) const;
+        bool getCustomPropertyAsBool(const String8 &name, bool &value) const;
 
+        // check if stream is valid
+        static bool isStreamValid(AudioSystem::stream_type stream);
 
         AudioPolicyClientInterface *mpClientInterface;  // audio policy client interface
         audio_io_handle_t mPrimaryOutput;              // primary output handle
+        audio_io_handle_t mMusicOffloadOutput;          // Music offload output handler
+        int mMusicOffloadSessionId;          // Audio session which has active offload output
         // list of descriptors for outputs currently opened
         DefaultKeyedVector<audio_io_handle_t, AudioOutputDescriptor *> mOutputs;
         // copy of mOutputs before setDeviceConnectionState() opens new outputs
@@ -544,6 +589,8 @@ protected:
 
         Vector <HwModule *> mHwModules;
 
+        static bool mIsDirectOutputActive; //check whether direct thread is active or not
+
 #ifdef AUDIO_POLICY_TEST
         Mutex   mLock;
         Condition mWaitWorkCV;
@@ -559,6 +606,10 @@ protected:
         uint32_t        mTestLatencyMs;
 #endif //AUDIO_POLICY_TEST
 
+        /*flag to keep track of background music*/
+        bool     mIsBGMEnabled;
+        audio_io_handle_t mBGMOutput;
+
 private:
         static float volIndexToAmpl(audio_devices_t device, const StreamDescriptor& streamDesc,
                 int indexInUi);
@@ -566,6 +617,13 @@ private:
         //    routing of notifications
         void handleNotificationRoutingForStream(AudioSystem::stream_type stream);
         static bool isVirtualInputDevice(audio_devices_t device);
+#ifdef BGM_ENABLED
+        bool IsRemoteBGMSupported(AudioSystem::stream_type stream);
+        // return the strategy corresponding to a given stream type in case of BGM
+        routing_strategy getStrategyforbackgroundsink(AudioSystem::stream_type stream);
+#endif // BGM_ENABLED
+        // Custom properties map
+        DefaultKeyedVector<String8, String8> mCustomPropertiesMap;
 };
 
 };

@@ -72,6 +72,33 @@ int wifi_connect_to_supplicant(const char *ifname);
 void wifi_close_supplicant_connection(const char *ifname);
 
 /**
+ * Open a connection to hostapd daemon for hotspot operation.
+ *
+ * @return 0 on success, < 0 on failure.
+ */
+int wifi_connect_to_hostapd();
+
+/**
+ * Close connection to hostapd.
+ *
+ * @return 0 on success, < 0 on failure.
+ */
+void wifi_close_hostapd_connection();
+
+/**
+ * wifi_get_AP_station_list() issues a command to get all
+ * connected stations in hotspot mode.
+ *
+ * @param reply is a buffer to receive a reply string
+ * @param reply_len on entry, this is the maximum length of
+ *        the reply buffer. On exit, the number of
+ *        bytes in the reply buffer.
+ *
+ * @return 0 if successful, < 0 if an error.
+ */
+int  wifi_get_AP_station_list(char *reply, size_t *reply_len);
+
+/**
  * wifi_wait_for_event() performs a blocking call to 
  * get a Wi-Fi event and returns a string representing 
  * a Wi-Fi event when it occurs.
@@ -149,6 +176,21 @@ int wifi_change_fw_path(const char *fwpath);
  */
 #define WIFI_ENTROPY_FILE	"/data/misc/wifi/entropy.bin"
 int ensure_entropy_file_exists();
+
+#ifndef BIT
+#  define BIT(X)	(1 << X)
+#endif
+
+/**
+ * Different operating mode supported by broadcom driver
+ */
+enum {
+	WIFI_STA_MODE	= BIT(0),
+	WIFI_AP_MODE	= BIT(1),
+	WIFI_P2P_MODE	= BIT(2),
+};
+int wifi_switch_driver_mode(int mode);
+
 
 #if __cplusplus
 };  // extern "C"

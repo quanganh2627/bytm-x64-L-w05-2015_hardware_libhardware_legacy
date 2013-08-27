@@ -1,7 +1,7 @@
 # Copyright 2006 The Android Open Source Project
 
 # Setting LOCAL_PATH will mess up all-subdir-makefiles, so do it beforehand.
-legacy_modules := power uevent vibrator wifi qemu qemu_tracing
+legacy_modules := power uevent wifi qemu qemu_tracing
 
 SAVE_MAKEFILES := $(call all-named-subdir-makefiles,$(legacy_modules))
 LEGACY_AUDIO_MAKEFILES := $(call all-named-subdir-makefiles,audio)
@@ -9,7 +9,7 @@ LEGACY_AUDIO_MAKEFILES := $(call all-named-subdir-makefiles,audio)
 LOCAL_PATH:= $(call my-dir)
 include $(CLEAR_VARS)
 
-LOCAL_SHARED_LIBRARIES := libcutils libwpa_client
+LOCAL_SHARED_LIBRARIES := libcutils liblog libwpa_client
 
 LOCAL_INCLUDES += $(LOCAL_PATH)
 

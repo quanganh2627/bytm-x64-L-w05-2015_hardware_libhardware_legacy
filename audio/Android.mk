@@ -23,6 +23,10 @@ LOCAL_SRC_FILES := \
     AudioPolicyCompatClient.cpp \
     audio_policy_hal.cpp
 
+ifeq ($(ENABLE_BACKGROUND_MUSIC),true)
+  LOCAL_CFLAGS += -DBGM_ENABLED
+endif
+
 ifeq ($(AUDIO_POLICY_TEST),true)
   LOCAL_CFLAGS += -DAUDIO_POLICY_TEST
 endif
@@ -42,7 +46,8 @@ LOCAL_SRC_FILES := \
 
 LOCAL_SHARED_LIBRARIES := \
     libcutils \
-    libutils
+    libutils \
+    liblog
 
 LOCAL_STATIC_LIBRARIES := \
     libmedia_helper
