@@ -1111,7 +1111,8 @@ void AudioPolicyManagerBase::releaseOutput(audio_io_handle_t output)
         AudioOutputDescriptor *outputDesc = mOutputs.valueAt(index);
 
         // Close offload output only if ref count is zero.
-        int refCount = outputDesc->mRefCount[index];
+        // only stream type MUSIC is offloaded so get the ref count of it.
+        int refCount = outputDesc->mRefCount[AudioSystem::MUSIC];
         if (refCount == 0) {
             ALOGV("releaseOutput: closing output");
             mpClientInterface->closeOutput(output);
