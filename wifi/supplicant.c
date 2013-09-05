@@ -138,6 +138,7 @@ int update_ctrl_interface(const char *config_file) {
         free(pbuf);
         return 0;
     }
+    pbuf[nread] = '\0';
 
     if (!strcmp(config_file, SUPP_CONFIG_FILE)) {
         property_get("wifi.interface", ifc, WIFI_TEST_INTERFACE);
