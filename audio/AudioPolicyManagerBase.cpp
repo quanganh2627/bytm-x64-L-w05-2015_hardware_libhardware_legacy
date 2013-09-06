@@ -1111,7 +1111,8 @@ void AudioPolicyManagerBase::releaseOutput(audio_io_handle_t output)
         AudioOutputDescriptor *outputDesc = mOutputs.valueAt(index);
 
         // Close offload output only if ref count is zero.
-        int refCount = outputDesc->mRefCount[index];
+        // only stream type MUSIC is offloaded so get the ref count of it.
+        int refCount = outputDesc->mRefCount[AudioSystem::MUSIC];
         if (refCount == 0) {
             ALOGV("releaseOutput: closing output");
             mpClientInterface->closeOutput(output);
@@ -1634,19 +1635,15 @@ status_t AudioPolicyManagerBase::dump(int fd)
     return NO_ERROR;
 }
 
-bool AudioPolicyManagerBase::isOffloadSupported(uint32_t format,
-                                    audio_stream_type_t stream,
-                                    uint32_t samplingRate,
-                                    uint32_t bitRate,
-                                    int64_t duration,
-                                    int sessionId,
-                                    bool isVideo,
-                                    bool isStreaming)
+bool AudioPolicyManagerBase::isOffloadSupported(
+                        const audio_offload_info_t *config)
 {
-    ALOGV("isOffloadSupported: format=%d,"
+    ALOGV("isOffloadSupported: format=%x,"
          "stream=%x, sampRate %d, bitRate %d,"
          "durt %lld, sessionId %d, isVideo %d, isStreaming %d",
-         format, stream, samplingRate, bitRate, duration, sessionId, (int)isVideo, (int)isStreaming);
+         config->format, config->stream_type,
+         config->sample_rate, config->bit_rate, config->duration_us,
+         config->sessionId, config->has_video, config->is_streaming);
     // lpa.tunnelling.enable is a system property that governs audio tunnelling
     // 0 is set to disable. values other than 0 are for
     // enabling offload for specific formats based on bits set.
@@ -1659,38 +1656,49 @@ bool AudioPolicyManagerBase::isOffloadSupported(uint32_t format,
         ALOGV("isOffloadSupported: LPA property set to false");
         return false;
     }
-    ALOGV("isOffloadSupported: LPAformat, format: %x, %x", LPAformat, format);
-    switch (format) {
+    ALOGV("isOffloadSupported: LPAformat, format: %x, %x", LPAformat, config->format);
+    switch (config->format) {
         case AUDIO_FORMAT_AAC:
             if (!(LPAformat & AUDIO_OFFLOAD_AAC)) {
-                ALOGV("isOffloadSupported: format %x unsupported for offload", format);
+                ALOGV("isOffloadSupported: format %x unsupported for offload", config->format);
                 return false;
             }
             break;
         case AUDIO_FORMAT_MP3:
              if (!(LPAformat & AUDIO_OFFLOAD_MP3)) {
-                 ALOGV("isOffloadSupported: format %x unsupported for offload", format);
+                 ALOGV("isOffloadSupported: format %x unsupported for offload", config->format);
                  return false;
              }
              break;
         default:
-            ALOGV("isOffloadSupported: format %x unsupported for offload", format);
+            ALOGV("isOffloadSupported: format %x unsupported for offload", config->format);
             return false;
     }
 
     // Check if audio offload is enabled for playback of AV files
-    if (isVideo && (!(LPAformat & VIDEO_OFFLOAD))) {
+    if (config->has_video && (!(LPAformat & VIDEO_OFFLOAD))) {
         ALOGV("isOffloadSupported: LPA property set to false for AV files");
         return false;
     }
 
+    if ((config->channel_mask == 0) || (config->channel_mask > AUDIO_CHANNEL_OUT_7POINT1)) {
+        ALOGV("isOffloadSupported: Unsupported channels for offload");
+        return false;
+    }
+
+    if ((config->channel_mask > AUDIO_CHANNEL_OUT_STEREO) && !(LPAformat & MC_OFFLOAD)) {
+        ALOGV("isOffloadSupported: LPA property set to false for multichannel files");
+        return false;
+    }
+
     // If stream is not music or one of offload supported format, return false
-    if (stream != AUDIO_STREAM_MUSIC ) {
+    if (config->stream_type != AUDIO_STREAM_MUSIC ) {
         ALOGV("isOffloadSupported: return false as stream!=Music");
         return false;
     }
     // The LPE Music offload output is not free, return PCM
-    if ((mMusicOffloadOutput) && (sessionId != mMusicOffloadSessionId)) {
+    if ((mMusicOffloadOutput) && (config->sessionId != mMusicOffloadSessionId)) {
+        ALOGV("isOffloadSupported: mMusicOffloadOutput = %d", mMusicOffloadOutput);
         ALOGV("isOffloadSupported: Already offload in progress, use non offload decoding");
         return false;
     }
@@ -1698,32 +1706,22 @@ bool AudioPolicyManagerBase::isOffloadSupported(uint32_t format,
     //If duration is less than minimum value defined in property, return false
     char durValue[PROPERTY_VALUE_MAX];
     if (property_get("offload.min.file.duration.secs", durValue, "0")) {
-        if (duration < (atoi(durValue) * 1000000 )) {
+        if (config->duration_us < (atoi(durValue) * 1000000 )) {
             ALOGV("Property set to %s and it is too short for offload", durValue);
             return false;
         }
-    } else if (duration < (OFFLOAD_MIN_FILE_DURATION * 1000000 )) {
+    } else if (config->duration_us < (OFFLOAD_MIN_FILE_DURATION * 1000000 )) {
         ALOGV("isOffloadSupported: File duration is too short for offload");
         return false;
     }
 
-    if ( isStreaming) {
+    if (config->is_streaming) {
         ALOGV("isOffloadSupported: streaming is enabled, returning false");
         return false;
     }
 
-    // If format is not supported by LPE Music offload output, return PCM (IA-Decode)
-    switch (format){
-        case AUDIO_FORMAT_MP3:
-        case AUDIO_FORMAT_AAC:
-            break;
-        default:
-            ALOGV("isOffloadSupported: return false as unsupported format= %x", format);
-            return false;
-    }
-
     // If output device != SPEAKER or HEADSET/HEADPHONE, make it as IA-decoding option
-    routing_strategy strategy = getStrategy((AudioSystem::stream_type)stream);
+    routing_strategy strategy = getStrategy((AudioSystem::stream_type)config->stream_type);
     uint32_t device = getDeviceForStrategy(strategy, true /* from cache */);
 
     if ((device & AUDIO_DEVICE_OUT_NON_OFFLOAD) ||
@@ -1738,7 +1736,7 @@ bool AudioPolicyManagerBase::isOffloadSupported(uint32_t format,
         return false;
     }
 
-    ALOGD("isOffloadSupported: Return true with supported format=%x", format);
+    ALOGD("isOffloadSupported: Return true with supported format=%x", config->format);
     return true;
 }
 // ----------------------------------------------------------------------------
@@ -2833,7 +2831,7 @@ audio_devices_t AudioPolicyManagerBase::getDeviceForStrategy(routing_strategy st
         }
 #endif//BGM_ENABLED
 
-        if (strategy != STRATEGY_SONIFICATION) {
+        if ((strategy != STRATEGY_SONIFICATION) && (strategy != STRATEGY_SONIFICATION_LOCAL)) {
             // no sonification on remote submix (e.g. WFD)
             device2 = mAvailableOutputDevices & AUDIO_DEVICE_OUT_REMOTE_SUBMIX;
         }
@@ -2865,12 +2863,6 @@ audio_devices_t AudioPolicyManagerBase::getDeviceForStrategy(routing_strategy st
         }
         if ((device2 == AUDIO_DEVICE_NONE) && (strategy != STRATEGY_SONIFICATION_LOCAL)) {
             device2 = mAvailableOutputDevices & AudioSystem::DEVICE_OUT_AUX_DIGITAL;
-        }
-        if ((device2 == AUDIO_DEVICE_NONE) && (strategy != STRATEGY_SONIFICATION_LOCAL)) {
-            device2 = mAvailableOutputDevices & AUDIO_DEVICE_OUT_REMOTE_SUBMIX;
-        }
-        if ((device2 == AUDIO_DEVICE_NONE) && (strategy != STRATEGY_SONIFICATION_LOCAL)) {
-            device2 = mAvailableOutputDevices & AudioSystem::DEVICE_OUT_WIDI;
         }
         if ((device2 == AUDIO_DEVICE_NONE) && (strategy != STRATEGY_SONIFICATION_LOCAL)) {
             device2 = mAvailableOutputDevices & AudioSystem::DEVICE_OUT_WIDI;

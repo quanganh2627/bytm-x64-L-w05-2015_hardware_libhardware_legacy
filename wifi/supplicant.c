@@ -1,5 +1,6 @@
 /*
  * Copyright 2008, The Android Open Source Project
+ * Copyright 2012-2013, Intel Corporation
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,100 +15,28 @@
  * limitations under the License.
  */
 
-#include <stdlib.h>
-#include <fcntl.h>
-#include <errno.h>
-#include <string.h>
-#include <dirent.h>
-#include <sys/socket.h>
-#include <unistd.h>
-#include <poll.h>
-
-/* Sadly bionic doesn't seem to have imported this header, so
- * redeclare the bits need */
-#ifdef HAVE_LINUX_RFKILL_H
-#include <linux/rfkill.h>
-#else
-#define RFKILL_TYPE_WLAN 1
-#define RFKILL_OP_CHANGE_ALL 3
-struct rfkill_event {
-        __u32 idx;
-        __u8  type;
-        __u8  op;
-        __u8  soft, hard;
-} __attribute__((packed));
-#endif
-
-#include "hardware_legacy/wifi.h"
-#include "libwpa_client/wpa_ctrl.h"
-
-#define LOG_TAG "WifiHW"
-#include "cutils/log.h"
-#include "cutils/memory.h"
-#include "cutils/misc.h"
-#include "cutils/properties.h"
-#include "private/android_filesystem_config.h"
-#ifdef HAVE_LIBC_SYSTEM_PROPERTIES
-#define _REALLY_INCLUDE_SYS__SYSTEM_PROPERTIES_H_
-#include <sys/_system_properties.h>
-#endif
-
-/* PRIMARY refers to the connection on the primary interface
- * SECONDARY refers to an optional connection on a p2p interface
- *
- * For concurrency, we only support one active p2p connection and
- * one active STA connection at a time
- */
-#define PRIMARY     0
-#define SECONDARY   1
-#define MAX_CONNS   2
-
-static struct wpa_ctrl *ctrl_conn[MAX_CONNS];
-static struct wpa_ctrl *monitor_conn[MAX_CONNS];
+#include "wifi.h"
+#include "supplicant.h"
 
 /* socket pair used to exit from a blocking read */
 static int exit_sockets[MAX_CONNS][2];
-
-extern int do_dhcp();
-extern int ifc_init();
-extern void ifc_close();
-extern char *dhcp_lasterror();
-extern void get_dhcp_info();
-extern int init_module(void *, unsigned long, const char *);
-extern int delete_module(const char *, unsigned int);
 
 static char primary_iface[PROPERTY_VALUE_MAX];
 // TODO: use new ANDROID_SOCKET mechanism, once support for multiple
 // sockets is in
 
-#define WIFI_TEST_INTERFACE             "sta"
-#define WIFI_DRIVER_LOADER_DELAY        1000000
-
-static const char IFACE_DIR[]           = "/data/system/wpa_supplicant";
-
-static const char DRIVER_PROP_NAME[]    = "wlan.driver.status";
-static const char SUPPLICANT_NAME[]     = "wpa_supplicant";
-static const char SUPP_PROP_NAME[]      = "init.svc.wpa_supplicant";
-static const char P2P_SUPPLICANT_NAME[] = "p2p_supplicant";
-static const char P2P_PROP_NAME[]       = "init.svc.p2p_supplicant";
-static const char SUPP_CONFIG_TEMPLATE[]= "/system/etc/wifi/wpa_supplicant.conf";
-static const char SUPP_CONFIG_FILE[]    = "/data/misc/wifi/wpa_supplicant.conf";
-static const char P2P_CONFIG_FILE[]     = "/data/misc/wifi/p2p_supplicant.conf";
-static const char CONTROL_IFACE_PATH[]  = "/data/misc/wifi/sockets";
-static const char MODULE_FILE[]         = "/proc/modules";
-
-static const char SUPP_ENTROPY_FILE[]   = WIFI_ENTROPY_FILE;
 static unsigned char dummy_key[21] = { 0x02, 0x11, 0xbe, 0x33, 0x43, 0x35,
                                        0x68, 0x47, 0x84, 0x99, 0xa9, 0x2b,
                                        0x1c, 0xd3, 0xee, 0xff, 0xf1, 0xe2,
                                        0xf3, 0xf4, 0xf5 };
 
-/* Is either SUPPLICANT_NAME or P2P_SUPPLICANT_NAME */
+static pthread_mutex_t suppl_mutex = PTHREAD_MUTEX_INITIALIZER;
+
 static char supplicant_name[PROPERTY_VALUE_MAX];
-/* Is either SUPP_PROP_NAME or P2P_PROP_NAME */
 static char supplicant_prop_name[PROPERTY_KEY_MAX];
 
-static const char DRIVER_LOAD_CHECK[] = "/sys/class/net/%s/phy80211/name";
+static struct wpa_ctrl *ctrl_conn[MAX_CONNS];
+static struct wpa_ctrl *monitor_conn[MAX_CONNS];
 
 static int is_primary_interface(const char *ifname)
 {
@@ -117,100 +46,6 @@ static int is_primary_interface(const char *ifname)
         return 1;
     }
     return 0;
-}
-
-static int set_rfkill_soft_block(int val)
-{
-    struct rfkill_event ev;
-    int fd = open("/dev/rfkill", O_WRONLY);
-    if(fd < 0) {
-        ALOGE("cannot open /dev/rfkill: %s", strerror(errno));
-        return -1;
-    }
-
-    /* Use CHANGE_ALL to turn them all off.  Because rfkill devices
-     * can be platform devices (e.g. things like hard "airplane mode"
-     * switches), they aren't necessarily 1:1 with network devices.
-     * Thankfully the Android HAL doesn't understand un/load_driver()
-     * operating independently on different interfaces anyway. */
-    ev.idx = 0;
-    ev.type = RFKILL_TYPE_WLAN;
-    ev.op = RFKILL_OP_CHANGE_ALL;
-    ev.soft = val;
-    ev.hard = 0;
-    if(write(fd, (void*)&ev, sizeof(ev)) != sizeof(ev)) {
-        ALOGE("error writing to /dev/rfkill: %s", strerror(errno));
-        return -1;
-    }
-
-    close(fd);
-    return 0;
-}
-
-static int is_iface_present()
-{
-    char ifc[PROPERTY_VALUE_MAX];
-    char *sysfs_path;
-    int ret = 0;
-
-    property_get("wifi.interface", ifc, WIFI_TEST_INTERFACE);
-    ret = asprintf(&sysfs_path, DRIVER_LOAD_CHECK, ifc);
-    if (ret < 0) {
-        ALOGE("Error allocating sysfs path");
-        return 0;
-    }
-
-    ret = (!access(sysfs_path, F_OK));
-
-    free(sysfs_path);
-
-    return ret;
-}
-
-int do_dhcp_request(int *ipaddr, int *gateway, int *mask,
-                    int *dns1, int *dns2, int *server, int *lease)
-{
-    /* For test driver, always report success */
-    if (strcmp(primary_iface, WIFI_TEST_INTERFACE) == 0)
-        return 0;
-
-    if (ifc_init() < 0)
-        return -1;
-
-    if (do_dhcp(primary_iface) < 0) {
-        ifc_close();
-        return -1;
-    }
-    ifc_close();
-    get_dhcp_info(ipaddr, gateway, mask, dns1, dns2, server, lease);
-    return 0;
-}
-
-const char *get_dhcp_error_string()
-{
-    return dhcp_lasterror();
-}
-
-/*
- * Driver "loading" support: the wifi HAL framework uses this as its
- * metaphor for "turn the radio off", but the actual drivers
- * (i.e. mainline nl80211 drivers on platforms with integrated rfkill
- * support) don't require it.  Don't bother unloading kernel modules,
- * just use the rfkill framework to disable the radio state.
- */
-int is_wifi_driver_loaded()
-{
-    return is_iface_present();
-}
-
-int wifi_load_driver()
-{
-    return set_rfkill_soft_block(0);
-}
-
-int wifi_unload_driver()
-{
-    return set_rfkill_soft_block(1);
 }
 
 int ensure_entropy_file_exists()
@@ -265,6 +100,7 @@ int update_ctrl_interface(const char *config_file) {
     char *pbuf;
     char *sptr;
     struct stat sb;
+    int ret;
 
     if (stat(config_file, &sb) != 0)
         return -1;
@@ -291,6 +127,8 @@ int update_ctrl_interface(const char *config_file) {
     } else {
         strcpy(ifc, CONTROL_IFACE_PATH);
     }
+    /* Assume file is invalid to begin with */
+    ret = -1;
     /*
      * if there is a "ctrl_interface=<value>" entry, re-write it ONLY if it is
      * NOT a directory.  The non-directory value option is an Android add-on
@@ -301,33 +139,35 @@ int update_ctrl_interface(const char *config_file) {
      * The <value> is deemed to be a directory if the "DIR=" form is used or
      * the value begins with "/".
      */
-    if ((sptr = strstr(pbuf, "ctrl_interface=")) &&
-        (!strstr(pbuf, "ctrl_interface=DIR=")) &&
-        (!strstr(pbuf, "ctrl_interface=/"))) {
-        char *iptr = sptr + strlen("ctrl_interface=");
-        int ilen = 0;
-        int mlen = strlen(ifc);
-        int nwrite;
-        if (strncmp(ifc, iptr, mlen) != 0) {
-            ALOGE("ctrl_interface != %s", ifc);
-            while (((ilen + (iptr - pbuf)) < nread) && (iptr[ilen] != '\n'))
-                ilen++;
-            mlen = ((ilen >= mlen) ? ilen : mlen) + 1;
-            memmove(iptr + mlen, iptr + ilen + 1, nread - (iptr + ilen + 1 - pbuf));
-            memset(iptr, '\n', mlen);
-            memcpy(iptr, ifc, strlen(ifc));
-            destfd = TEMP_FAILURE_RETRY(open(config_file, O_RDWR, 0660));
-            if (destfd < 0) {
-                ALOGE("Cannot update \"%s\": %s", config_file, strerror(errno));
-                free(pbuf);
-                return -1;
+    if ((sptr = strstr(pbuf, "ctrl_interface="))) {
+        ret = 0;
+        if ((!strstr(pbuf, "ctrl_interface=DIR=")) &&
+                (!strstr(pbuf, "ctrl_interface=/"))) {
+            char *iptr = sptr + strlen("ctrl_interface=");
+            int ilen = 0;
+            int mlen = strlen(ifc);
+            int nwrite;
+            if (strncmp(ifc, iptr, mlen) != 0) {
+                ALOGE("ctrl_interface != %s", ifc);
+                while (((ilen + (iptr - pbuf)) < nread) && (iptr[ilen] != '\n'))
+                    ilen++;
+                mlen = ((ilen >= mlen) ? ilen : mlen) + 1;
+                memmove(iptr + mlen, iptr + ilen + 1, nread - (iptr + ilen + 1 - pbuf));
+                memset(iptr, '\n', mlen);
+                memcpy(iptr, ifc, strlen(ifc));
+                destfd = TEMP_FAILURE_RETRY(open(config_file, O_RDWR, 0660));
+                if (destfd < 0) {
+                    ALOGE("Cannot update \"%s\": %s", config_file, strerror(errno));
+                    free(pbuf);
+                    return -1;
+                }
+                TEMP_FAILURE_RETRY(write(destfd, pbuf, nread + mlen - ilen -1));
+                close(destfd);
             }
-            TEMP_FAILURE_RETRY(write(destfd, pbuf, nread + mlen - ilen -1));
-            close(destfd);
         }
     }
     free(pbuf);
-    return 0;
+    return ret;
 }
 
 int ensure_config_file_exists(const char *config_file)
@@ -345,9 +185,13 @@ int ensure_config_file_exists(const char *config_file)
             ALOGE("Cannot set RW to \"%s\": %s", config_file, strerror(errno));
             return -1;
         }
-        /* return if filesize is at least 10 bytes */
-        if (stat(config_file, &sb) == 0 && sb.st_size > 10) {
-            return update_ctrl_interface(config_file);
+        /* return if we were able to update control interface properly */
+        if (update_ctrl_interface(config_file) >=0) {
+            return 0;
+        } else {
+            /* This handles the scenario where the file had bad data
+             * for some reason. We continue and recreate the file.
+             */
         }
     } else if (errno != ENOENT) {
         ALOGE("Cannot access \"%s\": %s", config_file, strerror(errno));
@@ -446,10 +290,7 @@ int wifi_start_supplicant(int p2p_supported)
     unsigned serial = 0, i;
 #endif
 
-    ALOGE("p2p_supported = %d\n", p2p_supported);
     if (p2p_supported) {
-        ALOGE("p2p_supported supplicant name %s\n", P2P_SUPPLICANT_NAME);
-        ALOGE("p2p_supported supplicant prop name %s\n", P2P_PROP_NAME);
         strcpy(supplicant_name, P2P_SUPPLICANT_NAME);
         strcpy(supplicant_prop_name, P2P_PROP_NAME);
 
@@ -460,14 +301,12 @@ int wifi_start_supplicant(int p2p_supported)
         }
 
     } else {
-        ALOGE("supplicant name %s\n", SUPPLICANT_NAME);
-        ALOGE("supplicant prop name %s\n", SUPP_PROP_NAME);
         strcpy(supplicant_name, SUPPLICANT_NAME);
         strcpy(supplicant_prop_name, SUPP_PROP_NAME);
     }
 
     /* Check whether already running */
-    if (property_get(supplicant_name, supp_status, NULL)
+    if (property_get(supplicant_prop_name, supp_status, NULL)
             && strcmp(supp_status, "running") == 0) {
         return 0;
     }
@@ -537,6 +376,9 @@ int wifi_stop_supplicant(int p2p_supported)
 {
     char supp_status[PROPERTY_VALUE_MAX] = {'\0'};
     int count = 50; /* wait at most 5 seconds for completion */
+    char pidpropname[] = "wpa_supplicant.pid";
+    char pidpropval[PROPERTY_VALUE_MAX];
+    int ret, pid;
 
     if (p2p_supported) {
         strcpy(supplicant_name, P2P_SUPPLICANT_NAME);
@@ -552,6 +394,29 @@ int wifi_stop_supplicant(int p2p_supported)
         return 0;
     }
 
+    /* Shutdown wpa_supplicant with SIGTERM signal instead of
+     * SIGKILL sent by ctl.stop system command .
+     * SIGTERM allows to deinit properly all the wifi interfaces,
+     * specially p2p0 and p2p-p2p0-X virtual interfaces. It fixes
+     * further p2p connections after an Android framework softreboot
+     */
+
+    property_get(pidpropname, pidpropval, "-1");
+    pid = atoi(pidpropval);
+
+    LOGD("wpa_supplicant pid %d", pid);
+    if (pid > 0) {
+        /* try a nice wpa_supplicant shutdown */
+        ret = kill(pid, SIGTERM);
+        if (ret == 0) {
+            waitpid(pid, NULL, 0);
+            usleep(800000);
+            LOGD("wpa_supplicant pid %d stopped with SIGTERM", pid);
+            property_set(pidpropname, "");
+        } else {
+            LOGE("wpa_supplicant pid %d failed to stop", pid);
+        }
+    }
     property_set("ctl.stop", supplicant_name);
     sched_yield();
 
@@ -624,218 +489,6 @@ int wifi_connect_to_supplicant(const char *ifname)
     }
 }
 
-void log_cmd(const char *cmd)
-{
-    if (strstr (cmd, "SET_NETWORK") && strstr(cmd, "password")) {
-        char *pbuf = malloc(strlen(cmd) + 1);
-        if (pbuf) {
-            strncpy(pbuf, cmd, strlen(cmd) + 1);
-            pbuf[strlen(cmd)]='\0';
-            char *p = strchr(pbuf, '\"');
-            if (p)
-                *p = '\0';
-            LOGI("CMD: %s\n", pbuf);
-        }
-        free(pbuf);
-    }
-    else
-        LOGI("CMD: %s\n", cmd);
-}
-
-void log_reply(char *reply, size_t *reply_len)
-{
-    char replyLocal[*reply_len];
-    char delims[] = "\n";
-    char *result = NULL;
-
-    strncpy(replyLocal, reply, *reply_len);
-
-    if (*reply_len > 0 && replyLocal[*reply_len-1] == '\n')
-        replyLocal[*reply_len-1] = '\0';
-    else
-        replyLocal[*reply_len] = '\0';
-
-    result = strtok(replyLocal , delims );
-    while( result != NULL ) {
-        LOGI("REPLY: %s\n", result);
-        result = strtok( NULL, delims );
-    }
-}
-
-int wifi_send_command(int index, const char *cmd, char *reply, size_t *reply_len)
-{
-    int ret;
-
-    if (ctrl_conn[index] == NULL) {
-        ALOGV("Not connected to wpa_supplicant - \"%s\" command dropped.\n", cmd);
-        return -1;
-    }
-    ret = wpa_ctrl_request(ctrl_conn[index], cmd, strlen(cmd), reply, reply_len, NULL);
-    if (ret == -2) {
-        ALOGD("'%s' command timed out.\n", cmd);
-        /* unblocks the monitor receive socket for termination */
-        TEMP_FAILURE_RETRY(write(exit_sockets[index][0], "T", 1));
-        return -2;
-    } else if (ret < 0 || strncmp(reply, "FAIL", 4) == 0) {
-        return -1;
-    }
-    if (strncmp(cmd, "PING", 4) == 0) {
-        reply[*reply_len] = '\0';
-    }
-    return 0;
-}
-
-int wifi_ctrl_recv(int index, char *reply, size_t *reply_len)
-{
-    int res;
-    int ctrlfd = wpa_ctrl_get_fd(monitor_conn[index]);
-    struct pollfd rfds[2];
-
-    memset(rfds, 0, 2 * sizeof(struct pollfd));
-    rfds[0].fd = ctrlfd;
-    rfds[0].events |= POLLIN;
-    rfds[1].fd = exit_sockets[index][1];
-    rfds[1].events |= POLLIN;
-    res = TEMP_FAILURE_RETRY(poll(rfds, 2, -1));
-    if (res < 0) {
-        ALOGE("Error poll = %d", res);
-        return res;
-    }
-    if (rfds[0].revents & POLLIN) {
-        return wpa_ctrl_recv(monitor_conn[index], reply, reply_len);
-    } else {
-        return -2;
-    }
-    return 0;
-}
-
-int wifi_wait_on_socket(int index, char *buf, size_t buflen)
-{
-    size_t nread = buflen - 1;
-    int fd;
-    fd_set rfds;
-    int result;
-    struct timeval tval;
-    struct timeval *tptr;
-
-    if (monitor_conn[index] == NULL) {
-        ALOGD("Connection closed\n");
-        strncpy(buf, WPA_EVENT_TERMINATING " - connection closed", buflen-1);
-        buf[buflen-1] = '\0';
-        return strlen(buf);
-    }
-
-    result = wifi_ctrl_recv(index, buf, &nread);
-
-    /* Terminate reception on exit socket */
-    if (result == -2) {
-        strncpy(buf, WPA_EVENT_TERMINATING " - connection closed", buflen-1);
-        buf[buflen-1] = '\0';
-        return strlen(buf);
-    }
-
-    if (result < 0) {
-        ALOGD("wifi_ctrl_recv failed: %s\n", strerror(errno));
-        strncpy(buf, WPA_EVENT_TERMINATING " - recv error", buflen-1);
-        buf[buflen-1] = '\0';
-        return strlen(buf);
-    }
-    buf[nread] = '\0';
-    /* Check for EOF on the socket */
-    if (result == 0 && nread == 0) {
-        /* Fabricate an event to pass up */
-        ALOGD("Received EOF on supplicant socket\n");
-        strncpy(buf, WPA_EVENT_TERMINATING " - signal 0 received", buflen-1);
-        buf[buflen-1] = '\0';
-        return strlen(buf);
-    }
-    /*
-     * Events strings are in the format
-     *
-     *     <N>CTRL-EVENT-XXX
-     *
-     * where N is the message level in numerical form (0=VERBOSE, 1=DEBUG,
-     * etc.) and XXX is the event name. The level information is not useful
-     * to us, so strip it off.
-     */
-    if (buf[0] == '<') {
-        char *match = strchr(buf, '>');
-        if (match != NULL) {
-            nread -= (match+1-buf);
-            memmove(buf, match+1, nread+1);
-        }
-    }
-
-    return nread;
-}
-
-int wifi_wait_for_event(const char *ifname, char *buf, size_t buflen)
-{
-    if (is_primary_interface(ifname)) {
-        return wifi_wait_on_socket(PRIMARY, buf, buflen);
-    } else {
-        return wifi_wait_on_socket(SECONDARY, buf, buflen);
-    }
-}
-
-void wifi_close_sockets(int index)
-{
-    if (ctrl_conn[index] != NULL) {
-        wpa_ctrl_close(ctrl_conn[index]);
-        ctrl_conn[index] = NULL;
-    }
-
-    if (monitor_conn[index] != NULL) {
-        wpa_ctrl_close(monitor_conn[index]);
-        monitor_conn[index] = NULL;
-    }
-
-    if (exit_sockets[index][0] >= 0) {
-        close(exit_sockets[index][0]);
-        exit_sockets[index][0] = -1;
-    }
-
-    if (exit_sockets[index][1] >= 0) {
-        close(exit_sockets[index][1]);
-        exit_sockets[index][1] = -1;
-    }
-}
-
-void wifi_close_supplicant_connection(const char *ifname)
-{
-    char supp_status[PROPERTY_VALUE_MAX] = {'\0'};
-    int count = 50; /* wait at most 5 seconds to ensure init has stopped stupplicant */
-
-    if (is_primary_interface(ifname)) {
-        wifi_close_sockets(PRIMARY);
-    } else {
-        /* p2p socket termination needs unblocking the monitor socket
-         * STA connection does not need it since supplicant gets shutdown
-         */
-        TEMP_FAILURE_RETRY(write(exit_sockets[SECONDARY][0], "T", 1));
-        wifi_close_sockets(SECONDARY);
-        //closing p2p connection does not need a wait on
-        //supplicant stop
-        return;
-    }
-
-    while (count-- > 0) {
-        if (property_get(supplicant_prop_name, supp_status, NULL)) {
-            if (strcmp(supp_status, "stopped") == 0)
-                return;
-        }
-        usleep(100000);
-    }
-}
-
-int wifi_command(const char *ifname, const char *command, char *reply, size_t *reply_len)
-{
-    if (is_primary_interface(ifname)) {
-        return wifi_send_command(PRIMARY, command, reply, reply_len);
-    } else {
-        return wifi_send_command(SECONDARY, command, reply, reply_len);
-    }
-}
 /* Wifi_Hotspot: This function connects to hostapd daemon  */
 int wifi_connect_to_hostapd()
 {
@@ -845,7 +498,11 @@ int wifi_connect_to_hostapd()
     /* Clear out any stale socket files that might be left over. */
     wifi_wpa_ctrl_cleanup();
 
-    property_get("ap.interface", ifname, "");
+    /* For connection with the ctrl_interface of hostap daemon,
+       the fixed value of socket name needs to be defined. And We will
+       use "wpa_wlan1" as socket name for hostap daemon while
+       supplicant uses "wpa_wlan0" for this  */
+    strcpy(ifname, "wlan1");
 
     ctrl_conn[index] = wpa_ctrl_open(ifname);
     if (ctrl_conn[index] == NULL) {
@@ -1005,16 +662,211 @@ int wifi_get_AP_channel_list(char *addr, size_t *addr_len)
     return 0;
 }
 
-/*
- * Firmware switching.  These are called from
- * system/netd/SoftapController.cpp to support devices that need
- * different firmware for STA/AP/P2P modes.  None of our supported
- * drivers require that, and AFAICT the drivers (driver, rather:
- * orinoco was the only one I found with this property) in the
- * mainline kernel will already request the proper firmware files
- * automatically via request_firmware()/hotplug, and presumably be
- * handled correctly already with no help needed from the HAL.
- */
-const char *wifi_get_fw_path(int fw_type) { return NULL; }
-int wifi_change_fw_path(const char *fwpath) { return 0; }
-int wifi_switch_driver_mode(int mode) { return 0; }
+int wifi_send_command(int index, const char *cmd, char *reply, size_t *reply_len)
+{
+    int ret;
+
+    if (ctrl_conn[index] == NULL) {
+        ALOGV("Not connected to wpa_supplicant - \"%s\" command dropped.\n", cmd);
+        return -1;
+    }
+    log_cmd(cmd);
+    ret = wpa_ctrl_request(ctrl_conn[index], cmd, strlen(cmd), reply, reply_len, NULL);
+    if (ret == -2) {
+        ALOGD("'%s' command timed out.\n", cmd);
+        /* unblocks the monitor receive socket for termination */
+        TEMP_FAILURE_RETRY(write(exit_sockets[index][0], "T", 1));
+        return -2;
+    } else if (ret < 0 || strncmp(reply, "FAIL", 4) == 0) {
+        LOGI("REPLY: FAIL\n");
+        return -1;
+    }
+    if (strncmp(cmd, "PING", 4) == 0) {
+        reply[*reply_len] = '\0';
+    }
+    log_reply(reply, reply_len);
+    return 0;
+}
+
+int wifi_ctrl_recv(int index, char *reply, size_t *reply_len)
+{
+    int res;
+    int ctrlfd = wpa_ctrl_get_fd(monitor_conn[index]);
+    struct pollfd rfds[2];
+
+    memset(rfds, 0, 2 * sizeof(struct pollfd));
+    rfds[0].fd = ctrlfd;
+    rfds[0].events |= POLLIN;
+    rfds[1].fd = exit_sockets[index][1];
+    rfds[1].events |= POLLIN;
+    res = TEMP_FAILURE_RETRY(poll(rfds, 2, -1));
+    if (res < 0) {
+        ALOGE("Error poll = %d", res);
+        return res;
+    }
+    if (rfds[0].revents & POLLIN) {
+        return wpa_ctrl_recv(monitor_conn[index], reply, reply_len);
+    } else if (rfds[1].revents & POLLIN) {
+        /* Close only the p2p sockets on receive side
+         * see wifi_close_supplicant_connection()
+         */
+        if (index == SECONDARY) {
+            ALOGD("close sockets %d", index);
+            wifi_close_sockets(index);
+        }
+    }
+    return -2;
+}
+
+int wifi_wait_on_socket(int index, char *buf, size_t buflen)
+{
+    size_t nread = buflen - 1;
+    int result;
+
+    if (monitor_conn[index] == NULL) {
+        ALOGD("Connection closed\n");
+        strncpy(buf, WPA_EVENT_TERMINATING " - connection closed", buflen-1);
+        buf[buflen-1] = '\0';
+        return strlen(buf);
+    }
+
+    result = wifi_ctrl_recv(index, buf, &nread);
+
+    /* Terminate reception on exit socket */
+    if (result == -2) {
+        strncpy(buf, WPA_EVENT_TERMINATING " - connection closed", buflen-1);
+        buf[buflen-1] = '\0';
+        return strlen(buf);
+    }
+
+    if (result < 0) {
+        ALOGD("wifi_ctrl_recv failed: %s\n", strerror(errno));
+        strncpy(buf, WPA_EVENT_TERMINATING " - recv error", buflen-1);
+        buf[buflen-1] = '\0';
+        return strlen(buf);
+    }
+    buf[nread] = '\0';
+    /* Check for EOF on the socket */
+    if (result == 0 && nread == 0) {
+        /* Fabricate an event to pass up */
+        ALOGD("Received EOF on supplicant socket\n");
+        strncpy(buf, WPA_EVENT_TERMINATING " - signal 0 received", buflen-1);
+        buf[buflen-1] = '\0';
+        return strlen(buf);
+    }
+    /*
+     * Events strings are in the format
+     *
+     *     <N>CTRL-EVENT-XXX
+     *
+     * where N is the message level in numerical form (0=VERBOSE, 1=DEBUG,
+     * etc.) and XXX is the event name. The level information is not useful
+     * to us, so strip it off.
+     */
+    if (buf[0] == '<') {
+        char *match = strchr(buf, '>');
+        if (match != NULL) {
+            nread -= (match+1-buf);
+            memmove(buf, match+1, nread+1);
+        }
+    }
+    LOGI("EVENT: %s\n", buf);
+    return nread;
+}
+
+int wifi_wait_for_event(const char *ifname, char *buf, size_t buflen)
+{
+    if (is_primary_interface(ifname)) {
+        return wifi_wait_on_socket(PRIMARY, buf, buflen);
+    } else {
+        return wifi_wait_on_socket(SECONDARY, buf, buflen);
+    }
+}
+
+void wifi_close_sockets(int index)
+{
+    if (ctrl_conn[index] != NULL) {
+        wpa_ctrl_close(ctrl_conn[index]);
+        ctrl_conn[index] = NULL;
+    }
+
+    if (monitor_conn[index] != NULL) {
+        wpa_ctrl_close(monitor_conn[index]);
+        monitor_conn[index] = NULL;
+    }
+
+    if (exit_sockets[index][0] >= 0) {
+        close(exit_sockets[index][0]);
+        exit_sockets[index][0] = -1;
+    }
+
+    if (exit_sockets[index][1] >= 0) {
+        close(exit_sockets[index][1]);
+        exit_sockets[index][1] = -1;
+    }
+}
+
+void wifi_close_supplicant_connection(const char *ifname)
+{
+    char supp_status[PROPERTY_VALUE_MAX] = {'\0'};
+    int count = 50; /* wait at most 5 seconds to ensure init has stopped stupplicant */
+    LOGD("Close connection to supplicant\n");
+    pthread_mutex_lock(&suppl_mutex);
+
+    if (is_primary_interface(ifname)) {
+        wifi_close_sockets(PRIMARY);
+    } else {
+        /* p2p socket termination needs unblocking the monitor socket
+         * STA connection does not need it since supplicant gets shutdown
+         */
+        TEMP_FAILURE_RETRY(write(exit_sockets[SECONDARY][0], "T", 1));
+        /* p2p sockets are closed after the monitor thread
+         * receives the terminate on the exit socket
+         */
+        pthread_mutex_unlock(&suppl_mutex);
+        return;
+    }
+
+    while (count-- > 0) {
+        if (property_get(supplicant_prop_name, supp_status, NULL)) {
+            if (strcmp(supp_status, "stopped") == 0) {
+                pthread_mutex_unlock(&suppl_mutex);
+                return;
+	    }
+        }
+        usleep(100000);
+    }
+    pthread_mutex_unlock(&suppl_mutex);
+}
+
+int wifi_command(const char *ifname, const char *command, char *reply, size_t *reply_len)
+{
+    if (is_primary_interface(ifname)) {
+        return wifi_send_command(PRIMARY, command, reply, reply_len);
+    } else {
+        return wifi_send_command(SECONDARY, command, reply, reply_len);
+    }
+}
+
+int do_dhcp_request(int *ipaddr, int *gateway, int *mask,
+                    int *dns1, int *dns2, int *server, int *lease) {
+    /* For test driver, always report success */
+    if (strcmp(primary_iface, WIFI_TEST_INTERFACE) == 0)
+        return 0;
+
+    if (ifc_init() < 0)
+        return -1;
+
+    if (do_dhcp(primary_iface) < 0) {
+        ifc_close();
+        return -1;
+    }
+    ifc_close();
+    get_dhcp_info(ipaddr, gateway, mask, dns1, dns2, server, lease);
+    return 0;
+}
+
+const char *get_dhcp_error_string() {
+    return dhcp_lasterror();
+}
+
