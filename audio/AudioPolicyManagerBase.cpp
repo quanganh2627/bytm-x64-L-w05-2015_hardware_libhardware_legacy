@@ -1048,14 +1048,17 @@ status_t AudioPolicyManagerBase::stopOutput(audio_io_handle_t output,
 
             // force restoring the device selection on other active outputs if it differs from the
             // one being selected for this output if there are no other streams present in this output.
-            if (outputDesc->isActive()) {
+            if (!(outputDesc->isActive())) {
                 for (size_t i = 0; i < mOutputs.size(); i++) {
                     audio_io_handle_t curOutput = mOutputs.keyAt(i);
                     AudioOutputDescriptor *desc = mOutputs.valueAt(i);
                     if (curOutput != output &&
                         desc->isActive() &&
-                        ((desc->mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) || outputDesc->sharesHwModuleWith(desc)) &&
-                        newDevice != desc->device()) {
+                        ((desc->mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) ||
+                          outputDesc->sharesHwModuleWith(desc) ||
+                          (desc->mFlags & AUDIO_OUTPUT_FLAG_DEEP_BUFFER) ||
+                          (curOutput == mPrimaryOutput)) &&
+                         newDevice != desc->device()) {
                     setOutputDevice(curOutput,
                                     getNewDevice(curOutput, false /*fromCache*/),
                                     true,
