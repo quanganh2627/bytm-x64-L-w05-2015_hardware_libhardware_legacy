@@ -2398,6 +2398,7 @@ void AudioPolicyManagerBase::checkOutputForAllStrategies()
     checkOutputForStrategy(STRATEGY_SONIFICATION_LOCAL);
     checkOutputForStrategy(STRATEGY_MEDIA);
     checkOutputForStrategy(STRATEGY_DTMF);
+    checkOutputForStrategy(STRATEGY_IDLE);
 }
 
 audio_io_handle_t AudioPolicyManagerBase::getA2dpOutput() const
@@ -2496,6 +2497,8 @@ audio_devices_t AudioPolicyManagerBase::getNewDevice(audio_io_handle_t output, b
         device = getDeviceForStrategy(STRATEGY_MEDIA, fromCache);
     } else if (outputDesc->isStrategyActive(STRATEGY_DTMF)) {
         device = getDeviceForStrategy(STRATEGY_DTMF, fromCache);
+    } else {
+        device = getDeviceForStrategy(STRATEGY_IDLE, fromCache);
     }
 
     ALOGV("getNewDevice() selected device %x", device);
@@ -2834,10 +2837,6 @@ audio_devices_t AudioPolicyManagerBase::getDeviceForStrategy(routing_strategy st
         }
 #endif//BGM_ENABLED
 
-        if ((strategy != STRATEGY_SONIFICATION) && (strategy != STRATEGY_SONIFICATION_LOCAL)) {
-            // no sonification on remote submix (e.g. WFD)
-            device2 = mAvailableOutputDevices & AUDIO_DEVICE_OUT_REMOTE_SUBMIX;
-        }
         if ((device2 == AUDIO_DEVICE_NONE) &&
                 mHasA2dp && (mForceUse[AudioSystem::FOR_MEDIA] != AudioSystem::FORCE_NO_BT_A2DP) &&
                 (getA2dpOutput() != 0) && !mA2dpSuspended) {
@@ -2866,6 +2865,11 @@ audio_devices_t AudioPolicyManagerBase::getDeviceForStrategy(routing_strategy st
         }
         if ((device2 == AUDIO_DEVICE_NONE) && (strategy != STRATEGY_SONIFICATION_LOCAL)) {
             device2 = mAvailableOutputDevices & AudioSystem::DEVICE_OUT_AUX_DIGITAL;
+        }
+        if ((device2 == AUDIO_DEVICE_NONE) && (strategy != STRATEGY_SONIFICATION)
+                && (strategy != STRATEGY_SONIFICATION_LOCAL)) {
+            // no sonification on remote submix (e.g. WFD)
+            device2 = mAvailableOutputDevices & AUDIO_DEVICE_OUT_REMOTE_SUBMIX;
         }
         if ((device2 == AUDIO_DEVICE_NONE) && (strategy != STRATEGY_SONIFICATION_LOCAL)) {
             device2 = mAvailableOutputDevices & AudioSystem::DEVICE_OUT_WIDI;
@@ -2924,6 +2928,37 @@ audio_devices_t AudioPolicyManagerBase::getDeviceForStrategy(routing_strategy st
         }
 #endif //BGM_ENABLED
         } //STRATEGY_BACKGROUND_MUSIC
+        break;
+        case STRATEGY_IDLE: {
+            if (device == AUDIO_DEVICE_NONE) {
+                device = mAvailableOutputDevices & AUDIO_DEVICE_OUT_WIRED_HEADPHONE;
+            }
+            if (device == AUDIO_DEVICE_NONE) {
+                device = mAvailableOutputDevices & AUDIO_DEVICE_OUT_WIRED_HEADSET;
+            }
+            if (device == AUDIO_DEVICE_NONE) {
+                device = mAvailableOutputDevices & AUDIO_DEVICE_OUT_USB_ACCESSORY;
+            }
+            if (device == AUDIO_DEVICE_NONE) {
+                device = mAvailableOutputDevices & AUDIO_DEVICE_OUT_USB_DEVICE;
+            }
+            if (device == AUDIO_DEVICE_NONE) {
+                device = mAvailableOutputDevices & AudioSystem::DEVICE_OUT_DGTL_DOCK_HEADSET;
+            }
+            if (device == AUDIO_DEVICE_NONE) {
+                device = mAvailableOutputDevices & AudioSystem::DEVICE_OUT_AUX_DIGITAL;
+            }
+            if (device == AUDIO_DEVICE_NONE) {
+                device = mAvailableOutputDevices & AUDIO_DEVICE_OUT_REMOTE_SUBMIX;
+            }
+            if ((device == AUDIO_DEVICE_NONE) &&
+                    (mForceUse[AudioSystem::FOR_DOCK] == AudioSystem::FORCE_ANALOG_DOCK)) {
+                device = mAvailableOutputDevices & AUDIO_DEVICE_OUT_ANLG_DOCK_HEADSET;
+            }
+            if (device == AUDIO_DEVICE_NONE) {
+                device = mAvailableOutputDevices & AUDIO_DEVICE_OUT_SPEAKER;
+            }
+        }
         break;
     default:
         ALOGW("getDeviceForStrategy() unknown strategy: %d", strategy);
