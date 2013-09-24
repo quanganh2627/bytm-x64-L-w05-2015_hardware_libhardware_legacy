@@ -49,3 +49,7 @@ WIFI_GLUE(BC, bc_load_driver, bc_unload_driver, NULL,
 WIFI_GLUE(MTK, mtk_load_driver, mtk_unload_driver, mtk_switch_driver_mode,
 	  NULL, NULL, mtk_is_driver_loaded)
 #endif
+
+#ifdef WIFI_GLUE_WITH_RTL
+WIFI_GLUE(RTL, NULL, NULL, NULL, NULL, NULL, NULL)
+#endif
