@@ -65,8 +65,10 @@ ifneq (,$(filter wifi_mtk%,$(PRODUCTS.$(INTERNAL_PRODUCT).PRODUCT_PACKAGES)))
 
 endif
 
-	LOCAL_SRC_FILES += wifi/wifi.c
-	LOCAL_SRC_FILES += wifi/utils.c
-	LOCAL_SRC_FILES += wifi/supplicant.c
+ifneq (,$(filter wifi_rtl%,$(PRODUCTS.$(INTERNAL_PRODUCT).PRODUCT_PACKAGES)))
+	LOCAL_CFLAGS += -DWIFI_GLUE_WITH_RTL
+endif
+
+LOCAL_SRC_FILES += wifi/wifi.c wifi/utils.c wifi/supplicant.c
 
 LOCAL_SHARED_LIBRARIES += libnetutils
