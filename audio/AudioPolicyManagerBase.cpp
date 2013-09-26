@@ -194,6 +194,7 @@ status_t AudioPolicyManagerBase::setDeviceConnectionState(audio_devices_t device
         //disable the background music if the devices supporting BGM becomes unavailable
             if (device & AUDIO_DEVICE_OUT_REMOTE_BGM_SINK) {
                 mBGMOutput = 0;
+                mIsBGMEnabled = 0;
                 ALOGV("[BGMUSIC] BGM device becomes unavailable mIsBGMEnabled = %d", mIsBGMEnabled);
             }
 #endif //BGM_ENABLED
