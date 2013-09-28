@@ -3208,8 +3208,13 @@ audio_devices_t AudioPolicyManagerBase::getDeviceForInputSource(int inputSource)
         }
         break;
     case AUDIO_SOURCE_CAMCORDER:
+        if (isInCall()) {
+            // To avoid disturbing an ongoing call, use the same device
+            // as the one used for uplink.
+            device = getDeviceForInputSource(AUDIO_SOURCE_VOICE_UPLINK);
+        }
         // Use wiredHeadset's MIC when Headset with mic is connected
-        if (mAvailableInputDevices & AudioSystem::DEVICE_IN_WIRED_HEADSET) {
+        else if (mAvailableInputDevices & AudioSystem::DEVICE_IN_WIRED_HEADSET) {
             device = AudioSystem::DEVICE_IN_WIRED_HEADSET;
         }
         // Use the Mic which is in same direction as the orientation of camera
