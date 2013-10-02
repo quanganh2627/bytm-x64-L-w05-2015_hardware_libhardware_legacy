@@ -1,5 +1,9 @@
 # Copyright 2006 The Android Open Source Project
 
+ifneq ($(BOARD_CUSTOM_WIFI_HAL_SRC),)
+LOCAL_SRC_FILES += ../../$(BOARD_CUSTOM_WIFI_HAL_SRC)
+else
+
 ifdef WIFI_DRIVER_MODULE_PATH
 LOCAL_CFLAGS += -DWIFI_DRIVER_MODULE_PATH=\"$(WIFI_DRIVER_MODULE_PATH)\"
 endif
@@ -26,5 +30,7 @@ LOCAL_CFLAGS += -DWIFI_DRIVER_FW_PATH_PARAM=\"$(WIFI_DRIVER_FW_PATH_PARAM)\"
 endif
 
 LOCAL_SRC_FILES += wifi/wifi.c
+
+endif
 
 LOCAL_SHARED_LIBRARIES += libnetutils
