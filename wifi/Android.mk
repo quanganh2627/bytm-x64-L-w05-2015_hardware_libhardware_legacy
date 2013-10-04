@@ -10,6 +10,12 @@ ifeq ($(TARGET_BOARD_PLATFORM),bigcore)
 	LOCAL_SRC_FILES += vendors/bc.c
 endif
 
+# To make P2P working in existing Android framework (below KK)
+# with kernels linux-3.8 and above
+ifeq ($(K310_MR2_COMPATIBILITY), true)
+LOCAL_CFLAGS += -DCONFIG_K310_MR2_COMPATIBILITY
+endif
+
 ifneq (,$(filter wifi_bcm%,$(PRODUCTS.$(INTERNAL_PRODUCT).PRODUCT_PACKAGES)))
 	ifdef WIFI_DRIVER_MODULE_PATH
 	LOCAL_CFLAGS += -DWIFI_DRIVER_MODULE_PATH=\"$(WIFI_DRIVER_MODULE_PATH)\"
