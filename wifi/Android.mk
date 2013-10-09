@@ -63,8 +63,8 @@ ifneq (,$(filter wifi_ti%,$(PRODUCTS.$(INTERNAL_PRODUCT).PRODUCT_PACKAGES)))
 	LOCAL_CFLAGS += -DWIFI_GLUE_WITH_TI
 endif
 
-ifneq (,$(filter wifi_lightning_peak%,$(PRODUCTS.$(INTERNAL_PRODUCT).PRODUCT_PACKAGES)))
-	LOCAL_CFLAGS += -DWIFI_GLUE_WITH_LNP
+ifneq (,$(filter wifi_intel%,$(PRODUCTS.$(INTERNAL_PRODUCT).PRODUCT_PACKAGES)))
+	LOCAL_CFLAGS += -DWIFI_GLUE_WITH_INTEL
 endif
 
 ifneq (,$(filter wifi_mtk%,$(PRODUCTS.$(INTERNAL_PRODUCT).PRODUCT_PACKAGES)))
