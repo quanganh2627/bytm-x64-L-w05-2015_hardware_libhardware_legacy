@@ -2491,6 +2491,8 @@ audio_devices_t AudioPolicyManagerBase::getNewDevice(audio_io_handle_t output, b
     //      use device for strategy media
     // 7: the strategy DTMF is active on the output:
     //      use device for strategy DTMF
+    // 8: no strategy active on primary output:
+    //      use device for strategy idle
     if (outputDesc->isStrategyActive(STRATEGY_ENFORCED_AUDIBLE)) {
         device = getDeviceForStrategy(STRATEGY_ENFORCED_AUDIBLE, fromCache);
     } else if (isInCall() ||
@@ -2512,7 +2514,9 @@ audio_devices_t AudioPolicyManagerBase::getNewDevice(audio_io_handle_t output, b
     } else if (outputDesc->isStrategyActive(STRATEGY_DTMF)) {
         device = getDeviceForStrategy(STRATEGY_DTMF, fromCache);
     } else {
-        device = getDeviceForStrategy(STRATEGY_IDLE, fromCache);
+        if (output == mPrimaryOutput) {
+            device = getDeviceForStrategy(STRATEGY_IDLE, fromCache);
+        }
     }
 
     ALOGV("getNewDevice() selected device %x", device);
