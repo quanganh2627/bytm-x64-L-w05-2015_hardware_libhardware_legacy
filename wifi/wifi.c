@@ -16,8 +16,6 @@
 
 #include "wifi.h"
 
-#define WIFI_DRIVER_LOADER_DELAY	1000000
-
 /*
  * This gets defined by the script load_bcmdriver in
  * vendor/intel/common/wifi/bcm_specific/
@@ -75,7 +73,6 @@ int wifi_load_driver()
         return -1;
 
     if (strcmp(FIRMWARE_LOADER,"") == 0) {
-        /* usleep(WIFI_DRIVER_LOADER_DELAY); */
         property_set(DRIVER_PROP_NAME, "ok");
     }
     else {
