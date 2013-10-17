@@ -81,7 +81,6 @@ static char primary_iface[PROPERTY_VALUE_MAX];
 // sockets is in
 
 #define WIFI_TEST_INTERFACE             "sta"
-#define WIFI_DRIVER_LOADER_DELAY        1000000
 
 static const char IFACE_DIR[]           = "/data/system/wpa_supplicant";
 
