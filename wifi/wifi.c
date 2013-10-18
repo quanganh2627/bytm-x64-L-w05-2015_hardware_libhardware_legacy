@@ -25,7 +25,11 @@ static const char BCM_PROP_CHIP[]	= "wlan.bcm.chip";
 #ifdef WIFI_GLUE_WITH_BCM
 #  include "vendors/bcm.h"
 #endif
- 
+
+#ifdef WIFI_GLUE_WITH_BC
+#  include "vendors/bc.h"
+#endif
+
 enum {
     /* See X Macro trick on Wikipedia */
 #define WIFI_GLUE(Vendor, Ops...) VENDOR_ ## Vendor,

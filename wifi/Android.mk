@@ -2,8 +2,11 @@
 
 ifeq ($(TARGET_BOARD_PLATFORM),bigcore)
 	ADDITIONAL_DEFAULT_PROPERTIES += wifi.interface=wlan0
-	LOCAL_SRC_FILES += wifi/wifi_bc.c
-else
+	ADDITIONAL_DEFAULT_PROPERTIES += wlan.driver.vendor=bc
+	LOCAL_CFLAGS += -DWIFI_GLUE_WITH_BC
+	LOCAL_SRC_FILES += vendors/bc.c
+endif
+
 ifneq (,$(filter wifi_bcm%,$(PRODUCTS.$(INTERNAL_PRODUCT).PRODUCT_PACKAGES)))
 	ifdef WIFI_DRIVER_MODULE_PATH
 	LOCAL_CFLAGS += -DWIFI_DRIVER_MODULE_PATH=\"$(WIFI_DRIVER_MODULE_PATH)\"
@@ -54,6 +57,5 @@ endif
 	LOCAL_SRC_FILES += wifi/wifi.c
 	LOCAL_SRC_FILES += wifi/utils.c
 	LOCAL_SRC_FILES += wifi/supplicant.c
-endif
 
 LOCAL_SHARED_LIBRARIES += libnetutils
