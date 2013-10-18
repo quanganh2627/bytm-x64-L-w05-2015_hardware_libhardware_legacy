@@ -25,3 +25,18 @@ WIFI_GLUE(BCM, bcm_load_driver, bcm_unload_driver, bcm_switch_driver_mode,
 #ifdef WIFI_GLUE_WITH_TI
 WIFI_GLUE(TI, NULL, NULL, NULL, NULL, NULL, NULL)
 #endif
+
+#ifdef WIFI_GLUE_WITH_BC
+/*
+ * Firmware switching.  These are called from
+ * system/netd/SoftapController.cpp to support devices that need
+ * different firmware for STA/AP/P2P modes.  None of our supported
+ * drivers require that, and AFAICT the drivers (driver, rather:
+ * orinoco was the only one I found with this property) in the
+ * mainline kernel will already request the proper firmware files
+ * automatically via request_firmware()/hotplug, and presumably be
+ * handled correctly already with no help needed from the HAL.
+ */
+WIFI_GLUE(BC, bc_load_driver, bc_unload_driver, NULL,
+	  NULL, NULL, bc_is_driver_loaded)
+#endif
