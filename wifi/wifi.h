@@ -78,4 +78,12 @@ extern int init_module(void *, unsigned long, const char *);
 extern int delete_module(const char *, unsigned int);
 void wifi_close_sockets();
 
+/* utils.c */
+int insmod(const char *filename, const char *args);
+int rmmod(const char *modname);
+int write_to_file(const char *path, const char *data, size_t len);
+int file_exist(char *filename);
+void log_cmd(const char *cmd);
+void log_reply(char *reply, size_t *reply_len);
+
 #endif /* !WIFI_H_ */
