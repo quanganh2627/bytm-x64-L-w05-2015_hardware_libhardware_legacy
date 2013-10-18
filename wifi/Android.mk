@@ -43,6 +43,7 @@ else
 	endif
 
 	LOCAL_SRC_FILES += wifi/wifi.c
+	LOCAL_SRC_FILES += wifi/utils.c
 endif
 
 LOCAL_SHARED_LIBRARIES += libnetutils
