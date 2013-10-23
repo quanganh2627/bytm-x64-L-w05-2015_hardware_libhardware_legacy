@@ -2941,7 +2941,11 @@ uint32_t AudioPolicyManagerBase::checkDeviceMuteStrategies(AudioOutputDescriptor
                     }
                     if ((tempMute || mute)) {
                         if (muteWaitMs < desc->latency()) {
-                            muteWaitMs = desc->latency();
+                            if (desc->mFlags & AUDIO_OUTPUT_FLAG_DEEP_BUFFER) {
+                                muteWaitMs = desc->latency() * 2;
+                            } else {
+                                muteWaitMs = desc->latency();
+                            }
                         }
                     }
                 }
