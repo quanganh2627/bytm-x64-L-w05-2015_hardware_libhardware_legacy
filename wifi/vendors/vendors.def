@@ -26,8 +26,8 @@ WIFI_GLUE(BCM, bcm_load_driver, bcm_unload_driver, bcm_switch_driver_mode,
 WIFI_GLUE(TI, NULL, NULL, NULL, NULL, NULL, NULL)
 #endif
 
-#ifdef WIFI_GLUE_WITH_LNP
-WIFI_GLUE(LNP, NULL, NULL, NULL, NULL, NULL, NULL)
+#ifdef WIFI_GLUE_WITH_INTEL
+WIFI_GLUE(INTEL, NULL, NULL, NULL, NULL, NULL, NULL)
 #endif
 
 #ifdef WIFI_GLUE_WITH_BC

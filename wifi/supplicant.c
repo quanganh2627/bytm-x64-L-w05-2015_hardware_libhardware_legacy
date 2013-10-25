@@ -291,6 +291,16 @@ int wifi_start_supplicant(int p2p_supported)
     unsigned serial = 0, i;
 #endif
 
+#ifdef CONFIG_K310_MR2_COMPATIBILITY
+    /* no p2p netdev with the new driver */
+    p2p_supported = 0;
+    /* Ensure p2p config file is created */
+    if (ensure_config_file_exists(P2P_CONFIG_FILE) < 0) {
+        ALOGE("Failed to create a p2p config file");
+        return -1;
+    }
+#endif
+
     if (p2p_supported) {
         strcpy(supplicant_name, P2P_SUPPLICANT_NAME);
         strcpy(supplicant_prop_name, P2P_PROP_NAME);
@@ -381,6 +391,11 @@ int wifi_stop_supplicant(int p2p_supported)
     char pidpropval[PROPERTY_VALUE_MAX];
     int ret, pid;
 
+#ifdef CONFIG_K310_MR2_COMPATIBILITY
+    /* no p2p netdev with the new driver */
+    p2p_supported = 0;
+#endif
+
     if (p2p_supported) {
         strcpy(supplicant_name, P2P_SUPPLICANT_NAME);
         strcpy(supplicant_prop_name, P2P_PROP_NAME);
@@ -439,7 +454,7 @@ int wifi_connect_on_socket_path(int index, const char *path)
     /* Make sure supplicant is running */
     if (!property_get(supplicant_prop_name, supp_status, NULL)
             || strcmp(supp_status, "running") != 0) {
-        ALOGE("Supplicant not running, cannot connect");
+        ALOGE("Supplicant not running, cannot connect to %s", path);
         return -1;
     }
 

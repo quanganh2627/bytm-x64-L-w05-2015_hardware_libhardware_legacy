@@ -34,10 +34,6 @@
 //This is currently disabled for Intel platforms
 //#define CHECK_MAX_EFFECT_MEMORY
 
-
-//This is currently disabled for Intel platforms
-//#define CHECK_MAX_EFFECT_MEMORY
-
 #include <utils/Log.h>
 #include <hardware_legacy/AudioPolicyManagerBase.h>
 #include <hardware/audio_effect.h>
@@ -2496,6 +2492,11 @@ audio_devices_t AudioPolicyManagerBase::getNewDevice(audio_io_handle_t output, b
         device = getDeviceForStrategy(STRATEGY_SONIFICATION_RESPECTFUL, fromCache);
     } else if (outputDesc->isStrategyActive(STRATEGY_MEDIA)) {
         device = getDeviceForStrategy(STRATEGY_MEDIA, fromCache);
+#ifdef BGM_ENABLED
+    } else if (mIsBGMEnabled ||
+                 outputDesc->isStrategyActive(STRATEGY_BACKGROUND_MUSIC)) {
+        device = getDeviceForStrategy(STRATEGY_BACKGROUND_MUSIC, fromCache);
+#endif //BGM_ENABLED
     } else if (outputDesc->isStrategyActive(STRATEGY_DTMF)) {
         device = getDeviceForStrategy(STRATEGY_DTMF, fromCache);
     } else {
@@ -3627,7 +3628,7 @@ status_t AudioPolicyManagerBase::checkAndSetVolume(int stream,
          audio_devices_t device2 = getDeviceForStrategy(STRATEGY_BACKGROUND_MUSIC, false /*fromCache*/);
          index = mStreams[stream].getVolumeIndex(AudioSystem::DEVICE_OUT_REMOTE_SUBMIX);
          float volume = computeVolume(stream, index, device2);
-         ALOGD("[BGMUSIC] compute volume for the forced active sink = %f for device2 %x device = ",volume, device2,device);
+         ALOGD("[BGMUSIC] compute volume for the forced active sink = %f for device2 %x device = %x",volume, device2,device);
          //apply the new volume for the primary output
          //TODO - needs to be extended for all attached sinks other than primary
          mpClientInterface->setStreamVolume((AudioSystem::stream_type)stream, volume,
