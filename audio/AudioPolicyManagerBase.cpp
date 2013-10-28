@@ -3638,14 +3638,22 @@ status_t AudioPolicyManagerBase::checkAndSetVolume(int stream,
 #ifdef BGM_ENABLED
     if (IsRemoteBGMSupported((AudioSystem::stream_type)stream)) {
        // get the newly forced sink
+         audio_io_handle_t output2 = 0;
+         AudioOutputDescriptor *desc;
          audio_devices_t device2 = getDeviceForStrategy(STRATEGY_BACKGROUND_MUSIC, false /*fromCache*/);
-         index = mStreams[stream].getVolumeIndex(AudioSystem::DEVICE_OUT_REMOTE_SUBMIX);
+         SortedVector<audio_io_handle_t> outputs = getOutputsForDevice(device2, mOutputs);
+         for(int i = 0; i < AudioSystem::NUM_STREAM_TYPES; i++) {
+             desc = mOutputs.valueAt(i);
+             if(desc->isActive())
+                break;
+         }
+         output2 = selectOutput(outputs, (AudioSystem::output_flags)desc->mFlags);
+         index = mStreams[stream].getVolumeIndex(AUDIO_DEVICE_OUT_REMOTE_BGM_SINK & device);
          float volume = computeVolume(stream, index, device2);
          ALOGD("[BGMUSIC] compute volume for the forced active sink = %f for device2 %x device = %x",volume, device2,device);
-         //apply the new volume for the primary output
-         //TODO - needs to be extended for all attached sinks other than primary
+         //applying the volume for the current active output for the device2.
          mpClientInterface->setStreamVolume((AudioSystem::stream_type)stream, volume,
-                                                       mPrimaryOutput, delayMs);
+                                                       output2, delayMs);
     }
 #endif //BGM_ENABLED
 
