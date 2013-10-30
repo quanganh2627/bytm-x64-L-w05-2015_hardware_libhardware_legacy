@@ -65,6 +65,9 @@
 #define WIFI_DRIVER_FW_PATH_PARAM	"/sys/module/wlan/parameters/fwpath"
 #endif
 
+#define DRIVER_PROP_NAME "wlan.driver.status"
+#define VENDOR_PROP_NAME "wlan.driver.vendor"
+
 #define WIFI_MODULE_43241_OPMODE	"/sys/module/bcm43241/parameters/op_mode"
 #define WIFI_MODULE_4334_OPMODE		"/sys/module/bcm4334/parameters/op_mode"
 #define WIFI_MODULE_4335_OPMODE		"/sys/module/bcm4335/parameters/op_mode"
