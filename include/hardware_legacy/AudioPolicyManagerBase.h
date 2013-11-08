@@ -158,6 +158,7 @@ protected:
             STRATEGY_SONIFICATION_LOCAL,
             STRATEGY_DTMF,
             STRATEGY_ENFORCED_AUDIBLE,
+            STRATEGY_BACKGROUND_MUSIC,
             STRATEGY_IDLE,
             NUM_STRATEGIES
         };
@@ -590,6 +591,9 @@ protected:
         uint32_t        mTestLatencyMs;
 #endif //AUDIO_POLICY_TEST
 
+        /*flag to keep track of background music*/
+        bool     mIsBGMEnabled;
+        audio_io_handle_t mBGMOutput;
 private:
         static float volIndexToAmpl(audio_devices_t device, const StreamDescriptor& streamDesc,
                 int indexInUi);
@@ -598,6 +602,11 @@ private:
         void handleNotificationRoutingForStream(AudioSystem::stream_type stream);
 
         static bool isVirtualInputDevice(audio_devices_t device);
+#ifdef BGM_ENABLED
+        bool IsRemoteBGMSupported(AudioSystem::stream_type stream);
+        // return the strategy corresponding to a given stream type in case of BGM
+        routing_strategy getStrategyforbackgroundsink(AudioSystem::stream_type stream);
+#endif // BGM_ENABLED
         // Custom properties map
         DefaultKeyedVector<String8, String8> mCustomPropertiesMap;
 };
