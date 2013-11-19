@@ -178,7 +178,6 @@ protected:
             STRATEGY_DTMF,
             STRATEGY_ENFORCED_AUDIBLE,
             STRATEGY_BACKGROUND_MUSIC,
-            STRATEGY_IDLE,
             NUM_STRATEGIES
         };
 
