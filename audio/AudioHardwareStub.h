@@ -42,6 +42,7 @@ public:
     virtual status_t    setParameters(const String8& keyValuePairs) { return NO_ERROR;}
     virtual String8     getParameters(const String8& keys);
     virtual status_t    getRenderPosition(uint32_t *dspFrames);
+    virtual status_t    flush();
 };
 
 class AudioStreamInStub : public AudioStreamIn {
@@ -58,6 +59,8 @@ public:
     virtual status_t    setParameters(const String8& keyValuePairs) { return NO_ERROR;}
     virtual String8     getParameters(const String8& keys);
     virtual unsigned int  getInputFramesLost() const { return 0; }
+    virtual status_t addAudioEffect(effect_handle_t effect) { return NO_ERROR; }
+    virtual status_t removeAudioEffect(effect_handle_t effect) { return NO_ERROR; }
 };
 
 class AudioHardwareStub : public  AudioHardwareBase
