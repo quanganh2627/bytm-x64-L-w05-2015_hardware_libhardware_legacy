@@ -321,16 +321,6 @@ static int ap_dump(const struct audio_policy *pol, int fd)
     return lap->apm->dump(fd);
 }
 
-static bool ap_is_offload_supported(struct audio_policy *pol,
-                                   const audio_offload_info_t *config)
-{
-    ALOGV("ap_is_offload_supported");
-    struct legacy_audio_policy *lap = to_lap(pol);
-
-    ALOGV("%s: tid %d", __func__, gettid());
-    return lap->apm->isOffloadSupported(config);
-}
-
 static int create_legacy_ap(const struct audio_policy_device *device,
                             struct audio_policy_service_ops *aps_ops,
                             void *service,
@@ -378,9 +368,6 @@ static int create_legacy_ap(const struct audio_policy_device *device,
     lap->policy.is_stream_active_remotely = ap_is_stream_active_remotely;
     lap->policy.is_source_active = ap_is_source_active;
     lap->policy.dump = ap_dump;
-
-    // offload
-    lap->policy.is_offload_supported = ap_is_offload_supported;
 
     lap->service = service;
     lap->aps_ops = aps_ops;

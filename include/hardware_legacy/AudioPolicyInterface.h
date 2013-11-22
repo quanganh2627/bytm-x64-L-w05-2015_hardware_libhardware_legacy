@@ -162,10 +162,6 @@ public:
 
     //dump state
     virtual status_t    dump(int fd) = 0;
-
-    //Check if offload is possible for given sample rate, bitrate, duration, video file
-    //streaming and audio policy.
-    virtual bool isOffloadSupported(const audio_offload_info_t *config) = 0;
 };
 
 
