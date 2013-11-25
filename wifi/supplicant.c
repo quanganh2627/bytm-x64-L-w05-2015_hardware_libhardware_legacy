@@ -109,86 +109,54 @@ int ensure_entropy_file_exists()
     return 0;
 }
 
+/*
+ * Append the ctrl_interface to the end of configuration file.
+ * Indeed, when supplicant starts, it rewrites the configuration
+ * file but remove the ctrl_interface parameter.
+ * This function only ensure we add it back to configuration file
+ * before starting supplicant.
+ */
 int update_ctrl_interface(const char *config_file) {
-
-    int srcfd, destfd;
-    int nread;
+    int fd  = -1;
+    int ret = -1;
+    int len = 0;
     char ifc[PROPERTY_VALUE_MAX];
-    char *pbuf;
-    char *sptr;
+    char * buf = NULL;
     struct stat sb;
-    int ret;
 
-    if (stat(config_file, &sb) != 0)
+    /* Try to access config file */
+    if (stat(config_file, &sb) != 0) {
+        ALOGE("update_ctrl_interface() - stat failed with errno=<%s>", strerror(errno));
         return -1;
+    }
 
-    pbuf = malloc(sb.st_size + PROPERTY_VALUE_MAX);
-    if (!pbuf)
-        return 0;
-    srcfd = TEMP_FAILURE_RETRY(open(config_file, O_RDONLY));
-    if (srcfd < 0) {
-        ALOGE("Cannot open \"%s\": %s", config_file, strerror(errno));
-        free(pbuf);
-        return 0;
-    }
-    nread = TEMP_FAILURE_RETRY(read(srcfd, pbuf, sb.st_size));
-    close(srcfd);
-    if (nread < 0) {
-        ALOGE("Cannot read \"%s\": %s", config_file, strerror(errno));
-        free(pbuf);
-        return 0;
-    }
-    pbuf[nread] = '\0';
+    /* Find out the wifi.interface value to use it as global ctrl_interface for supplicant */
+    property_get("wifi.interface", ifc, WIFI_TEST_INTERFACE);
 
-    if (!strcmp(config_file, SUPP_CONFIG_FILE)) {
-        property_get("wifi.interface", ifc, WIFI_TEST_INTERFACE);
-    } else {
-        strcpy(ifc, CONTROL_IFACE_PATH);
+    /* Prepare the string to write */
+    len = strlen("ctrl_interface=") + strlen(ifc) + 1;
+    buf = (char *)malloc(len);
+    if(!buf) {
+        ALOGE("update_ctrl_interface - malloc failed");
+        return -1;
     }
-    /* Assume file is invalid to begin with */
-    ret = -1;
-    /*
-     * if there is a "ctrl_interface=<value>" entry, re-write it ONLY if it is
-     * NOT a directory.  The non-directory value option is an Android add-on
-     * that allows the control interface to be exchanged through an environment
-     * variable (initialized by the "init" program when it starts a service
-     * with a "socket" option).
-     *
-     * The <value> is deemed to be a directory if the "DIR=" form is used or
-     * the value begins with "/".
-     */
-    if ((sptr = strstr(pbuf, "ctrl_interface="))) {
-        ret = 0;
-        if ((!strstr(pbuf, "ctrl_interface=DIR=")) &&
-                (!strstr(pbuf, "ctrl_interface=/"))) {
-            char *iptr = sptr + strlen("ctrl_interface=");
-            int ilen = 0;
-            int mlen = strlen(ifc);
-            int nwrite;
-            if (strncmp(ifc, iptr, mlen) != 0) {
-                ALOGE("ctrl_interface != %s", ifc);
-                while (((ilen + (iptr - pbuf)) < nread) && (iptr[ilen] != '\n'))
-                    ilen++;
-                mlen = ((ilen >= mlen) ? ilen : mlen) + 1;
-                memmove(iptr + mlen, iptr + ilen + 1, nread - (iptr + ilen + 1 - pbuf));
-                memset(iptr, '\n', mlen);
-                memcpy(iptr, ifc, strlen(ifc));
-                destfd = TEMP_FAILURE_RETRY(open(config_file, O_RDWR, 0660));
-                if (destfd < 0) {
-                    ALOGE("Cannot update \"%s\": %s", config_file, strerror(errno));
-                    free(pbuf);
-                    return -1;
-                }
-                TEMP_FAILURE_RETRY(write(destfd, pbuf, nread + mlen - ilen -1));
-                close(destfd);
-            }
-        }
+    snprintf(buf, len, "ctrl_interface=%s", ifc);
+
+    /* Open the configuration file and append the ctrl_interface parameter */
+    fd = TEMP_FAILURE_RETRY(open(config_file, O_APPEND|O_RDWR, 0660));
+    if(fd < 0) {
+        ALOGE("update_ctrl_interface - open <%s> file failed", config_file);
+        return -1;
     }
-    free(pbuf);
-    return ret;
+    TEMP_FAILURE_RETRY(write(fd, buf, len));
+
+    /* Close config_file */
+    close(fd);
+
+    return 0;
 }
 
-int ensure_config_file_exists(const char *config_file)
+int ensure_config_file_exists(const char *config_file, int p2p_supported)
 {
     char buf[2048];
     int srcfd, destfd;
@@ -216,9 +184,12 @@ int ensure_config_file_exists(const char *config_file)
         return -1;
     }
 
-    srcfd = TEMP_FAILURE_RETRY(open(SUPP_CONFIG_TEMPLATE, O_RDONLY));
+    if (p2p_supported)
+        srcfd = TEMP_FAILURE_RETRY(open(SUPP_P2P_CONFIG_TEMPLATE, O_RDONLY));
+    else
+        srcfd = TEMP_FAILURE_RETRY(open(SUPP_CONFIG_TEMPLATE, O_RDONLY));
     if (srcfd < 0) {
-        ALOGE("Cannot open \"%s\": %s", SUPP_CONFIG_TEMPLATE, strerror(errno));
+        ALOGE("Cannot open \"%s\": %s", p2p_supported?SUPP_P2P_CONFIG_TEMPLATE:SUPP_CONFIG_TEMPLATE, strerror(errno));
         return -1;
     }
 
@@ -231,7 +202,7 @@ int ensure_config_file_exists(const char *config_file)
 
     while ((nread = TEMP_FAILURE_RETRY(read(srcfd, buf, sizeof(buf)))) != 0) {
         if (nread < 0) {
-            ALOGE("Error reading \"%s\": %s", SUPP_CONFIG_TEMPLATE, strerror(errno));
+            ALOGE("Error reading \"%s\": %s", p2p_supported?SUPP_P2P_CONFIG_TEMPLATE:SUPP_CONFIG_TEMPLATE, strerror(errno));
             close(srcfd);
             close(destfd);
             unlink(config_file);
@@ -274,26 +245,25 @@ int wifi_start_supplicant(int p2p_supported)
         strcpy(supplicant_prop_name, P2P_PROP_NAME);
 
         /* Ensure p2p config file is created */
-        if (ensure_config_file_exists(P2P_CONFIG_FILE) < 0) {
+        if (ensure_config_file_exists(P2P_CONFIG_FILE, p2p_supported) < 0) {
             ALOGE("Failed to create a p2p config file");
             return -1;
         }
-
     } else {
         strcpy(supplicant_name, SUPPLICANT_NAME);
         strcpy(supplicant_prop_name, SUPP_PROP_NAME);
+
+        /* Ensure wifi config file is created */
+        if (ensure_config_file_exists(SUPP_CONFIG_FILE, p2p_supported) < 0) {
+            ALOGE("Failed to create a wifi config file");
+            return -1;
+        }
     }
 
     /* Check whether already running */
     if (property_get(supplicant_prop_name, supp_status, NULL)
             && strcmp(supp_status, "running") == 0) {
         return 0;
-    }
-
-    /* Before starting the daemon, make sure its config file exists */
-    if (ensure_config_file_exists(SUPP_CONFIG_FILE) < 0) {
-        ALOGE("Wi-Fi will not be enabled");
-        return -1;
     }
 
     if (ensure_entropy_file_exists() < 0) {
