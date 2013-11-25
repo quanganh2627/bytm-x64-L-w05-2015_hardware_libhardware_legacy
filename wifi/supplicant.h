@@ -27,6 +27,7 @@
 #define P2P_SUPPLICANT_NAME             "p2p_supplicant"
 #define P2P_PROP_NAME                   "init.svc.p2p_supplicant"
 #define SUPP_CONFIG_TEMPLATE            "/system/etc/wifi/wpa_supplicant.conf"
+#define SUPP_P2P_CONFIG_TEMPLATE        "/system/etc/wifi/p2p_supplicant.conf"
 #define SUPP_CONFIG_FILE                "/data/misc/wifi/wpa_supplicant.conf"
 #define P2P_CONFIG_FILE                 "/data/misc/wifi/p2p_supplicant.conf"
 #define CONTROL_IFACE_PATH              "/data/misc/wifi/sockets"
