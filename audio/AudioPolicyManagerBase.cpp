@@ -279,10 +279,13 @@ status_t AudioPolicyManagerBase::setDeviceConnectionState(audio_devices_t device
             // do not force device change on duplicated output because if device is 0, it will
             // also force a device 0 for the two outputs it is duplicated to which may override
             // a valid device selection on those outputs.
-            setOutputDevice(mOutputs.keyAt(i),
-                            getNewDevice(mOutputs.keyAt(i), true /*fromCache*/),
-                            !mOutputs.valueAt(i)->isDuplicated(),
-                            0);
+            if(mOutputs.valueAt(i)->isActive()) {
+                setOutputDevice(mOutputs.keyAt(i),
+                                getNewDevice(mOutputs.keyAt(i),
+                                true /*fromCache*/),
+                                !mOutputs.valueAt(i)->isDuplicated(),
+                                0);
+            }
         }
 #ifdef DOLBY_UDC
         audio_devices_t audioOutputDevice = getDeviceForStrategy(getStrategy(AudioSystem::MUSIC), false);
@@ -3185,7 +3188,16 @@ uint32_t AudioPolicyManagerBase::setOutputDevice(audio_io_handle_t output,
     // do the routing
     param.addInt(String8(AudioParameter::keyRouting), (int)device);
     param.addInt(String8(AudioParameter::keyStreamFlags), (int)outputDesc->mFlags);
-    mpClientInterface->setParameters(output, param.toString(), delayMs);
+    //delay the device switch by four times  the latency because for deep
+    //buffer playback buffer size is 192ms so that it still contain data
+    //that needs to be drained. So if the deep buffer stream is active
+    // apply a latency.
+    if(outputDesc->mFlags & AUDIO_OUTPUT_FLAG_DEEP_BUFFER) {
+        mpClientInterface->setParameters(output, param.toString(),
+                                          outputDesc->latency() * 2 * 2);
+    } else {
+        mpClientInterface->setParameters(output, param.toString(), delayMs);
+    }
 
     // update stream volumes according to new device
     applyStreamVolumes(output, device, delayMs);
