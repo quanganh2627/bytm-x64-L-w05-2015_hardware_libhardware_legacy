@@ -1423,7 +1423,7 @@ audio_io_handle_t AudioPolicyManagerBase::selectOutputForEffects(
         if ((desc->mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) != 0) {
             outputOffloaded = outputs[i];
         }
-#ifdef DOLBY_DAP_OPENSLES
+#ifndef DOLBY_DAP_OPENSLES
         if ((desc->mFlags & AUDIO_OUTPUT_FLAG_DEEP_BUFFER) != 0) {
             outputDeepBuffer = outputs[i];
         }
