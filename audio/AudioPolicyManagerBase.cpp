@@ -629,7 +629,15 @@ AudioPolicyManagerBase::IOProfile *AudioPolicyManagerBase::getProfileForDirectOu
                         return mHwModules[i]->mOutputProfiles[j];
                     }
                 }
-            } else {
+            } else if((channelMask <= AUDIO_CHANNEL_OUT_STEREO) &&
+                      (device == AudioSystem::DEVICE_OUT_AUX_DIGITAL) &&
+                       !(flags & AUDIO_OUTPUT_FLAG_DIRECT)){
+                  /*Direct output is selected only for multichannel content over HDMI
+                  NOTE - if stereo contents needs direct thread over HDMI; this condition
+                       needs to be removed or flags must have direct set*/
+                  ALOGI("make direct output unavaiable for stereo clips");
+                  return 0;
+           } else {
                 if (profile->isCompatibleProfile(device, samplingRate, format,
                                            channelMask,
                                            AUDIO_OUTPUT_FLAG_DIRECT)) {
