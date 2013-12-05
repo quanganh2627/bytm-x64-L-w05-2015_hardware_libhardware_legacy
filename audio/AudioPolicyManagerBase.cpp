@@ -1728,11 +1728,11 @@ status_t AudioPolicyManagerBase::dump(int fd)
 bool AudioPolicyManagerBase::isOffloadSupported(const audio_offload_info_t& offloadInfo)
 {
     ALOGV("isOffloadSupported: SR=%u, CM=0x%x, Format=0x%x, StreamType=%d,"
-     " BitRate=%u, duration=%lld us, has_video=%d",
+     " BitRate=%u, duration=%lld us, has_video=%d is_streaming = %d",
      offloadInfo.sample_rate, offloadInfo.channel_mask,
      offloadInfo.format,
      offloadInfo.stream_type, offloadInfo.bit_rate, offloadInfo.duration_us,
-     offloadInfo.has_video);
+     offloadInfo.has_video, offloadInfo.is_streaming);
 
     // Check if offload has been disabled
     char propValue[PROPERTY_VALUE_MAX];
@@ -1756,7 +1756,10 @@ bool AudioPolicyManagerBase::isOffloadSupported(const audio_offload_info_t& offl
         ALOGV("isOffloadSupported: has_video == true, returning false");
         return false;
     }
-
+    if (offloadInfo.is_streaming) {
+        ALOGV("isOffloadSupported: is_streaming == true, returning false");
+        return false;
+    }
     //If duration is less than minimum value defined in property, return false
     if (property_get("audio.offload.min.duration.secs", propValue, NULL)) {
         if (offloadInfo.duration_us < (atoi(propValue) * 1000000 )) {
