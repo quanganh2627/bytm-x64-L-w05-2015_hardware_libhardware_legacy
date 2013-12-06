@@ -470,7 +470,19 @@ static int adev_get_mic_mute(const struct audio_hw_device *dev, bool *state)
 static int adev_set_parameters(struct audio_hw_device *dev, const char *kvpairs)
 {
     struct legacy_audio_device *ladev = to_ladev(dev);
-    return ladev->hwif->setParameters(String8(kvpairs));
+    int val;
+
+    AudioParameter parms = AudioParameter(String8(kvpairs));
+    String8 s8 = String8(kvpairs);
+
+    // convert LPAL device from Rev 2 to Rev 1
+    if (parms.getInt(String8(AUDIO_PARAMETER_KEY_LPAL_DEVICE), val) == NO_ERROR) {
+        val = convert_audio_device(val, HAL_API_REV_2_0, HAL_API_REV_1_0);
+        parms.remove(String8(AUDIO_PARAMETER_KEY_LPAL_DEVICE));
+        parms.addInt(String8(AUDIO_PARAMETER_KEY_LPAL_DEVICE), val);
+        s8 = parms.toString();
+    }
+    return ladev->hwif->setParameters(s8);
 }
 
 static char * adev_get_parameters(const struct audio_hw_device *dev,
