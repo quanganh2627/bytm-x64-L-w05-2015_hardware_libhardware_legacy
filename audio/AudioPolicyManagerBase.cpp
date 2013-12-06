@@ -729,6 +729,15 @@ audio_io_handle_t AudioPolicyManagerBase::getOutput(AudioSystem::stream_type str
     }
 #endif //AUDIO_POLICY_TEST
 
+    //This workaround disables deep buffer in case of remote devices.
+    //This needs to be enabled after fixing the multiple stream
+    //routing issue with deep buffer.
+    if (((flags & AUDIO_OUTPUT_FLAG_DEEP_BUFFER) != 0) &&
+        ((mAvailableOutputDevices & AudioSystem::DEVICE_OUT_WIDI) ||
+        (mAvailableOutputDevices & AudioSystem::DEVICE_OUT_REMOTE_SUBMIX))) {
+        flags = (AudioSystem::output_flags)(flags & ~AUDIO_OUTPUT_FLAG_DEEP_BUFFER);
+    }
+
     // open a direct output if required by specified parameters
     //force direct flag if offload flag is set: offloading implies a direct output stream
     // and all common behaviors are driven by checking only the direct flag
