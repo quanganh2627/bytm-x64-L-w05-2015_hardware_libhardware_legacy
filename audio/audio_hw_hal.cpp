@@ -509,6 +509,16 @@ static int adev_open_output_stream(struct audio_hw_device *dev,
 
     devices = convert_audio_device(devices, HAL_API_REV_2_0, HAL_API_REV_1_0);
 
+    /**
+     * Output flags parameter is given at construction of output stream.
+     * Legacy API was never updated to give a chance to handle it.
+     * Some settings as bufferSize or Latency may depends on this flag.
+     * As Audio Flinger will not check for new parameter while the flag is changed, so
+     * latency / buffer size may be wrong.
+     * In order to keep compatibility, flags are given through status output parameter.
+     */
+    status = static_cast<audio_output_flags_t>(flags);
+
     out->legacy_out = ladev->hwif->openOutputStream(devices, (int *) &config->format,
                                                     &config->channel_mask,
                                                     &config->sample_rate, &status);
