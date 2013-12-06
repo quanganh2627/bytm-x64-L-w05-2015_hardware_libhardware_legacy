@@ -64,6 +64,7 @@
 #include <math.h>
 #include <hardware_legacy/audio_policy_conf.h>
 #include <cutils/properties.h>
+#include <media/AudioParameter.h>
 #ifdef DOLBY_UDC
 // System property shared with dolby codec
 #define DOLBY_SYSTEM_PROPERTY "dolby.audio.sink.info"
@@ -346,6 +347,12 @@ status_t AudioPolicyManagerBase::setDeviceConnectionState(audio_devices_t device
                         inputDesc->mDevice, newDevice, activeInput);
                 inputDesc->mDevice = newDevice;
                 AudioParameter param = AudioParameter();
+                if (inputDesc->mInputSource == AUDIO_SOURCE_LPAL) {
+                    activeInput = 0;
+                    param.add(String8(AUDIO_PARAMETER_KEY_ALWAYS_LISTENING_ROUTE),
+                    String8(AUDIO_PARAMETER_VALUE_ALWAYS_LISTENING_ROUTE_ON));
+                    param.addInt(String8(AUDIO_PARAMETER_KEY_LPAL_DEVICE), (int)inputDesc->mDevice);
+                }
                 param.addInt(String8(AudioParameter::keyRouting), (int)newDevice);
                 mpClientInterface->setParameters(activeInput, param.toString());
             }
