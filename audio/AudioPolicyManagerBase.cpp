@@ -1736,24 +1736,42 @@ bool AudioPolicyManagerBase::isOffloadSupported(const audio_offload_info_t& offl
 
     // Check if offload has been disabled
     char propValue[PROPERTY_VALUE_MAX];
+    char propValue2[PROPERTY_VALUE_MAX];
+    uint32_t offloadCapabilities = 0;
     if (property_get("audio.offload.disable", propValue, "0")) {
         if (atoi(propValue) != 0) {
             ALOGV("offload disabled by audio.offload.disable=%s", propValue );
             return false;
         }
     }
+    if (property_get("audio.offload.capabilities", propValue2, "0")) {
+        offloadCapabilities = strtoul(propValue2, NULL, 16);
+    }
+
+    // Check if audio offload is enabled for playback of AV files
+    if (offloadInfo.has_video && (!(offloadCapabilities & VIDEO_OFFLOAD))) {
+        ALOGV("isOffloadSupported: audio.offload.capabilities property set to"
+              " false for AV files");
+        return false;
+    }
+
+    if ((offloadInfo.channel_mask == 0) ||
+            (offloadInfo.channel_mask > AUDIO_CHANNEL_OUT_7POINT1)) {
+        ALOGV("isOffloadSupported: Unsupported channels for offload");
+        return false;
+    }
+
+    if ((offloadInfo.channel_mask > AUDIO_CHANNEL_OUT_STEREO) &&
+            !(offloadCapabilities & MC_OFFLOAD)) {
+        ALOGV("isOffloadSupported: audio.offload.capabilities property set to "
+              "false for multichannel files");
+        return false;
+    }
 
     // Check if stream type is music, then only allow offload as of now.
     if (offloadInfo.stream_type != AUDIO_STREAM_MUSIC)
     {
         ALOGV("isOffloadSupported: stream_type != MUSIC, returning false");
-        return false;
-    }
-
-    //TODO: enable audio offloading with video when ready
-    if (offloadInfo.has_video)
-    {
-        ALOGV("isOffloadSupported: has_video == true, returning false");
         return false;
     }
     if (offloadInfo.is_streaming) {
