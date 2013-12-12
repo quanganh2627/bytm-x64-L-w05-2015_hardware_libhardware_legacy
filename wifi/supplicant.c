@@ -240,6 +240,15 @@ int wifi_start_supplicant(int p2p_supported)
     unsigned serial = 0, i;
 #endif
 
+    strcpy(supplicant_name, SUPPLICANT_NAME);
+    strcpy(supplicant_prop_name, SUPP_PROP_NAME);
+
+    /* Ensure wifi config file is created */
+    if (ensure_config_file_exists(SUPP_CONFIG_FILE, 0) < 0) {
+      ALOGE("Failed to create a wifi config file");
+      return -1;
+    }
+
     if (p2p_supported) {
         strcpy(supplicant_name, P2P_SUPPLICANT_NAME);
         strcpy(supplicant_prop_name, P2P_PROP_NAME);
@@ -247,15 +256,6 @@ int wifi_start_supplicant(int p2p_supported)
         /* Ensure p2p config file is created */
         if (ensure_config_file_exists(P2P_CONFIG_FILE, p2p_supported) < 0) {
             ALOGE("Failed to create a p2p config file");
-            return -1;
-        }
-    } else {
-        strcpy(supplicant_name, SUPPLICANT_NAME);
-        strcpy(supplicant_prop_name, SUPP_PROP_NAME);
-
-        /* Ensure wifi config file is created */
-        if (ensure_config_file_exists(SUPP_CONFIG_FILE, p2p_supported) < 0) {
-            ALOGE("Failed to create a wifi config file");
             return -1;
         }
     }
