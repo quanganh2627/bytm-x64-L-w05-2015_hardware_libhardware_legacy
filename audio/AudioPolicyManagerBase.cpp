@@ -3740,13 +3740,20 @@ status_t AudioPolicyManagerBase::checkAndSetVolume(int stream,
     if (IsRemoteBGMSupported((AudioSystem::stream_type)stream)) {
        // get the newly forced sink
          audio_io_handle_t output2 = 0;
-         AudioOutputDescriptor *desc;
+         AudioOutputDescriptor *desc = NULL;
          audio_devices_t device2 = getDeviceForStrategy(STRATEGY_BACKGROUND_MUSIC, false /*fromCache*/);
          SortedVector<audio_io_handle_t> outputs = getOutputsForDevice(device2, mOutputs);
-         for(int i = 0; i < AudioSystem::NUM_STREAM_TYPES; i++) {
+         for(size_t i = 0; i <  mOutputs.size(); i++) {
              desc = mOutputs.valueAt(i);
              if(desc->isActive())
                 break;
+         }
+         //BGM is applicable only for music streams - there is a possibility of
+         // an inactive output based on a different strategy returned here. There
+         // is no need of applying volume for this output
+         if(!desc->isActive()) {
+            ALOGVV("[BGMUSIC] No active outputs available for BGM - no volume applied");
+            return NO_ERROR;
          }
          output2 = selectOutput(outputs, (AudioSystem::output_flags)desc->mFlags);
          index = mStreams[stream].getVolumeIndex(AUDIO_DEVICE_OUT_REMOTE_BGM_SINK & device);
