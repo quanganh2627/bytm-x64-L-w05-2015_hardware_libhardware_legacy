@@ -3188,6 +3188,12 @@ uint32_t AudioPolicyManagerBase::setOutputDevice(audio_io_handle_t output,
     // do the routing
     param.addInt(String8(AudioParameter::keyRouting), (int)device);
     param.addInt(String8(AudioParameter::keyStreamFlags), (int)outputDesc->mFlags);
+    // For offload use case routing has to be done via primary hal
+    // send the info to primary hal for routing
+    if (outputDesc->mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) {
+        mpClientInterface->setParameters(mPrimaryOutput, param.toString(),
+                                          delayMs);
+    }
     //delay the device switch by four times  the latency because for deep
     //buffer playback buffer size is 192ms so that it still contain data
     //that needs to be drained. So if the deep buffer stream is active
