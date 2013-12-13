@@ -103,6 +103,7 @@ struct i802_bss {
 	u8 addr[ETH_ALEN];
 
 	int freq;
+	int if_dynamic;
 
 	void *ctx;
 	struct nl_handle *nl_preq, *nl_mgmt;
