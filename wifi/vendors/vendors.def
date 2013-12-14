@@ -1,0 +1,55 @@
+/*
+ * Copyright 2008, The Android Open Source Project
+ * Copyright 2012-2013, Intel Corporation
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+ /* WIFI_GLUE (VENDOR_NAME, LOAD, UNLOAD, SWITCH, CHANGE_FW, GET_FW, IS_LOADED) */
+
+#ifdef WIFI_GLUE_WITH_BCM
+WIFI_GLUE(BCM, bcm_load_driver, bcm_unload_driver, bcm_switch_driver_mode,
+	  bcm_change_fw_path, NULL, bcm_is_driver_loaded)
+#endif
+
+#ifdef WIFI_GLUE_WITH_TI
+WIFI_GLUE(TI, NULL, NULL, NULL, NULL, NULL, NULL)
+#endif
+
+#ifdef WIFI_GLUE_WITH_INTEL
+WIFI_GLUE(INTEL, NULL, NULL, NULL, NULL, NULL, NULL)
+#endif
+
+#ifdef WIFI_GLUE_WITH_BC
+/*
+ * Firmware switching.  These are called from
+ * system/netd/SoftapController.cpp to support devices that need
+ * different firmware for STA/AP/P2P modes.  None of our supported
+ * drivers require that, and AFAICT the drivers (driver, rather:
+ * orinoco was the only one I found with this property) in the
+ * mainline kernel will already request the proper firmware files
+ * automatically via request_firmware()/hotplug, and presumably be
+ * handled correctly already with no help needed from the HAL.
+ */
+WIFI_GLUE(BC, bc_load_driver, bc_unload_driver, NULL,
+	  NULL, NULL, bc_is_driver_loaded)
+#endif
+
+#ifdef WIFI_GLUE_WITH_MTK
+WIFI_GLUE(MTK, mtk_load_driver, mtk_unload_driver, mtk_switch_driver_mode,
+	  NULL, NULL, mtk_is_driver_loaded)
+#endif
+
+#ifdef WIFI_GLUE_WITH_RTL
+WIFI_GLUE(RTL, NULL, NULL, NULL, NULL, NULL, NULL)
+#endif

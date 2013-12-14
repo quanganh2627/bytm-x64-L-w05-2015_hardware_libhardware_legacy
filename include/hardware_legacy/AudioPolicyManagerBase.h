@@ -12,6 +12,25 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
+ *
+ * This file was modified by Dolby Laboratories, Inc. The portions of the
+ * code that are surrounded by "DOLBY..." are copyrighted and
+ * licensed separately, as follows:
+ *
+ *  (C) 2011-2013 Dolby Laboratories, Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
  */
 
 
@@ -155,8 +174,10 @@ protected:
             STRATEGY_PHONE,
             STRATEGY_SONIFICATION,
             STRATEGY_SONIFICATION_RESPECTFUL,
+            STRATEGY_SONIFICATION_LOCAL,
             STRATEGY_DTMF,
             STRATEGY_ENFORCED_AUDIBLE,
+            STRATEGY_BACKGROUND_MUSIC,
             NUM_STRATEGIES
         };
 
@@ -236,7 +257,9 @@ protected:
         static const VolumeCurvePoint sSpeakerMediaVolumeCurve[AudioPolicyManagerBase::VOLCNT];
         // volume curve for sonification strategy on speakers
         static const VolumeCurvePoint sSpeakerSonificationVolumeCurve[AudioPolicyManagerBase::VOLCNT];
+        static const VolumeCurvePoint sSpeakerSonificationVolumeCurveDrc[AudioPolicyManagerBase::VOLCNT];
         static const VolumeCurvePoint sDefaultSystemVolumeCurve[AudioPolicyManagerBase::VOLCNT];
+        static const VolumeCurvePoint sDefaultSystemVolumeCurveDrc[AudioPolicyManagerBase::VOLCNT];
         static const VolumeCurvePoint sHeadsetSystemVolumeCurve[AudioPolicyManagerBase::VOLCNT];
         static const VolumeCurvePoint sDefaultVoiceVolumeCurve[AudioPolicyManagerBase::VOLCNT];
         static const VolumeCurvePoint sSpeakerVoiceVolumeCurve[AudioPolicyManagerBase::VOLCNT];
@@ -284,6 +307,8 @@ protected:
             bool mStrategyMutedByDevice[NUM_STRATEGIES]; // strategies muted because of incompatible
                                                 // device selection. See checkDeviceMuteStrategies()
             uint32_t mDirectOpenCount; // number of clients using this output (direct outputs only)
+
+            bool mForceRouting; // Next routing for this output will be forced as current device routed is null
         };
 
         // descriptor for audio inputs. Used to maintain current configuration of each opened audio input
@@ -302,6 +327,7 @@ protected:
             uint32_t mRefCount;                         // number of AudioRecord clients using this output
             int      mInputSource;                      // input source selected by application (mediarecorder.h)
             const IOProfile *mProfile;                  // I/O profile this output derives from
+            bool     mHasStarted;                       // to indicate that the audiorecord has started
         };
 
         // stream descriptor used for volume control
@@ -310,7 +336,7 @@ protected:
         public:
             StreamDescriptor();
 
-            int getVolumeIndex(audio_devices_t device);
+            int getVolumeIndex(audio_devices_t device) const;
             void dump(int fd);
 
             int mIndexMin;      // min volume index
@@ -374,8 +400,11 @@ protected:
 
         // compute the actual volume for a given stream according to the requested index and a particular
         // device
-        virtual float computeVolume(int stream, int index, audio_io_handle_t output, audio_devices_t device);
+        virtual float computeVolume(int stream, int index, audio_devices_t device);
 
+        // Returns the stream volume
+        float getVolume(int stream, audio_devices_t device);
+ 
         // check that volume change is permitted, compute and send new volume to audio hardware
         status_t checkAndSetVolume(int stream, int index, audio_io_handle_t output, audio_devices_t device, int delayMs = 0, bool force = false);
 
@@ -401,10 +430,14 @@ protected:
         void handleIncallSonification(int stream, bool starting, bool stateChange);
 
         // true if device is in a telephony or VoIP call
-        virtual bool isInCall();
+        virtual bool isInCall() const;
 
         // true if given state represents a device in a telephony or VoIP call
-        virtual bool isStateInCall(int state);
+        static bool isStateInCall(int state);
+        // true if sonification strategy is of type SONIFICATION, SONIFICATION_RESPECTFUL or SONIFICATION_LOCAL
+        static bool isSonificationStrategy(routing_strategy strategy);
+        // true if stream is of type SONIFICATION, SONIFICATION_RESPECTFUL or SONIFICATION_LOCAL
+        static bool isStreamOfTypeSonification(AudioSystem::stream_type stream);
 
         // when a device is connected, checks if an open output can be routed
         // to this device. If none is open, tries to open one of the available outputs.
@@ -432,7 +465,7 @@ protected:
         void checkA2dpSuspend();
 
         // returns the A2DP output handle if it is open or 0 otherwise
-        audio_io_handle_t getA2dpOutput();
+        audio_io_handle_t getA2dpOutput() const;
 
         // selects the most appropriate device on output for current state
         // must be called every time a condition that affects the device choice for a given output is
@@ -491,26 +524,39 @@ protected:
 
         audio_io_handle_t selectOutputForEffects(const SortedVector<audio_io_handle_t>& outputs);
 
+        bool isNonOffloadableEffectEnabled();
+
         //
         // Audio policy configuration file parsing (audio_policy.conf)
         //
         static uint32_t stringToEnum(const struct StringToEnum *table,
                                      size_t size,
                                      const char *name);
+        static bool stringToBool(const char *value);
         static audio_output_flags_t parseFlagNames(char *name);
         static audio_devices_t parseDeviceNames(char *name);
         void loadSamplingRates(char *name, IOProfile *profile);
         void loadFormats(char *name, IOProfile *profile);
         void loadOutChannels(char *name, IOProfile *profile);
         void loadInChannels(char *name, IOProfile *profile);
-        status_t loadOutput(cnode *root,  HwModule *module);
-        status_t loadInput(cnode *root,  HwModule *module);
+        status_t loadOutput(const cnode *root,  HwModule *module);
+        status_t loadInput(const cnode *root,  HwModule *module);
         void loadHwModule(cnode *root);
         void loadHwModules(cnode *root);
+        void loadCustomProperties(const cnode *root);
         void loadGlobalConfig(cnode *root);
         status_t loadAudioPolicyConfig(const char *path);
         void defaultAudioPolicyConfig(void);
+        // Custom properties accessors
+        // if the accessor fails, the value parameter is unchanged
+        bool getCustomPropertyAsString(const String8 &name, String8 &value) const;
+        bool getCustomPropertyAsLong(const String8 &name, long &value) const;
+        bool getCustomPropertyAsULong(const String8 &name, unsigned long &value) const;
+        bool getCustomPropertyAsFloat(const String8 &name, float &value) const;
+        bool getCustomPropertyAsBool(const String8 &name, bool &value) const;
 
+        // check if stream is valid
+        static bool isStreamValid(AudioSystem::stream_type stream);
 
         AudioPolicyClientInterface *mpClientInterface;  // audio policy client interface
         audio_io_handle_t mPrimaryOutput;              // primary output handle
@@ -550,8 +596,12 @@ protected:
         audio_devices_t mAttachedOutputDevices; // output devices always available on the platform
         audio_devices_t mDefaultOutputDevice; // output device selected by default at boot time
                                               // (must be in mAttachedOutputDevices)
+        bool mSpeakerDrcEnabled;// true on devices that use DRC on the DEVICE_CATEGORY_SPEAKER path
+                                // to boost soft sounds, used to adjust volume curves accordingly
 
         Vector <HwModule *> mHwModules;
+
+        static bool mIsDirectOutputActive; //check whether direct thread is active or not
 
 #ifdef AUDIO_POLICY_TEST
         Mutex   mLock;
@@ -568,13 +618,37 @@ protected:
         uint32_t        mTestLatencyMs;
 #endif //AUDIO_POLICY_TEST
 
+        /*flag to keep track of background music*/
+        bool     mIsBGMEnabled;
+        audio_io_handle_t mBGMOutput;
+
+#ifdef DOLBY_UDC
+        enum HdmiDeviceCapability {
+            HDMI_8,
+            HDMI_6,
+            HDMI_2,
+            HDMI_INVALID
+        };
+
+        void setDolbySystemProperty(audio_devices_t);
+        HdmiDeviceCapability            mCurrentHdmiDeviceCapability;
+#endif //DOLBY_UDC
+
 private:
         static float volIndexToAmpl(audio_devices_t device, const StreamDescriptor& streamDesc,
                 int indexInUi);
         // updates device caching and output for streams that can influence the
         //    routing of notifications
         void handleNotificationRoutingForStream(AudioSystem::stream_type stream);
+
         static bool isVirtualInputDevice(audio_devices_t device);
+#ifdef BGM_ENABLED
+        bool IsRemoteBGMSupported(AudioSystem::stream_type stream);
+        // return the strategy corresponding to a given stream type in case of BGM
+        routing_strategy getStrategyforbackgroundsink(AudioSystem::stream_type stream);
+#endif // BGM_ENABLED
+        // Custom properties map
+        DefaultKeyedVector<String8, String8> mCustomPropertiesMap;
 };
 
 };

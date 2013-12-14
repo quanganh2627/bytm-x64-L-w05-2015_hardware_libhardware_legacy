@@ -12,11 +12,30 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
+ *
+ * This file was modified by Dolby Laboratories, Inc. The portions of the
+ * code that are surrounded by "DOLBY..." are copyrighted and
+ * licensed separately, as follows:
+ *
+ *  (C) 2011-2013 Dolby Laboratories, Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
  */
 
 #define LOG_TAG "AudioPolicyManagerBase"
 //#define LOG_NDEBUG 0
-
+#define TUNING_ENABLED
 //#define VERY_VERBOSE_LOGGING
 #ifdef VERY_VERBOSE_LOGGING
 #define ALOGVV ALOGV
@@ -31,6 +50,13 @@
 // active output devices in isStreamActiveRemotely()
 #define APM_AUDIO_OUT_DEVICE_REMOTE_ALL  AUDIO_DEVICE_OUT_REMOTE_SUBMIX
 
+#ifdef BGM_ENABLED
+   #define BGM_OUTPUT_IN_USE -1
+#endif //BGM_ENABLED
+
+//This is currently disabled for Intel platforms
+//#define CHECK_MAX_EFFECT_MEMORY
+
 #include <utils/Log.h>
 #include <hardware_legacy/AudioPolicyManagerBase.h>
 #include <hardware/audio_effect.h>
@@ -38,13 +64,57 @@
 #include <math.h>
 #include <hardware_legacy/audio_policy_conf.h>
 #include <cutils/properties.h>
+#ifdef DOLBY_UDC
+// System property shared with dolby codec
+#define DOLBY_SYSTEM_PROPERTY "dolby.audio.sink.info"
+#endif // DOLBY_UDC
 
 namespace android_audio_legacy {
+
+bool AudioPolicyManagerBase :: mIsDirectOutputActive;
 
 // ----------------------------------------------------------------------------
 // AudioPolicyInterface implementation
 // ----------------------------------------------------------------------------
 
+
+#ifdef BGM_ENABLED
+bool AudioPolicyManagerBase::IsRemoteBGMSupported(AudioSystem::stream_type stream) {
+
+    String8 reply;
+    String8 reply2;
+    char* isBGMEnabledValue;
+
+    //check whether BGM state is set only if the BGM device is available
+    if ((mAvailableOutputDevices & AUDIO_DEVICE_OUT_REMOTE_BGM_SINK) &&
+             (stream == AudioSystem::MUSIC)) {
+       reply = mpClientInterface->getParameters(0, String8(AUDIO_PARAMETER_KEY_REMOTE_BGM_STATE));
+       ALOGVV("%s isBGMEnabledValue = %s",__func__,reply.string());
+       isBGMEnabledValue = strpbrk((char *)reply.string(), "=");
+       ++isBGMEnabledValue;
+       mIsBGMEnabled = strcmp(isBGMEnabledValue,"true") ? false : true;
+
+       char* isBGMAudioActive;
+       bool IsBGMAudioavailable;
+       char* isBGMAudioValue;
+       reply2 = mpClientInterface->getParameters(0, String8(AUDIO_PARAMETER_VALUE_REMOTE_BGM_AUDIO));
+       ALOGVV("%s isBGMAudioActive = %s",__func__,reply2.string());
+       isBGMAudioValue = strpbrk((char *)reply2.string(), "=");
+       ++isBGMAudioValue;
+       IsBGMAudioavailable = strcmp(isBGMAudioValue,"true") ? false : true;
+       ALOGV("%s IsBGMAudioavailable = %d",__func__,IsBGMAudioavailable);
+
+       //enable BGM when these conditions are satisfied
+       // 1. Enable BGM parameter is set from the unique application
+       // 2. The current active stream is music
+       if (mIsBGMEnabled) {
+           return true;
+       }
+    }
+
+    return false;
+}
+#endif //BGM_ENABLED
 
 status_t AudioPolicyManagerBase::setDeviceConnectionState(audio_devices_t device,
                                                   AudioSystem::device_connection_state state,
@@ -133,8 +203,35 @@ status_t AudioPolicyManagerBase::setDeviceConnectionState(audio_devices_t device
             }
 
             ALOGV("setDeviceConnectionState() disconnecting device %x", device);
+
+#ifdef BGM_ENABLED
+        //disable the background music if the devices supporting BGM becomes unavailable
+            if (device & AUDIO_DEVICE_OUT_REMOTE_BGM_SINK) {
+                mBGMOutput = 0;
+                mIsBGMEnabled = 0;
+                ALOGV("[BGMUSIC] BGM device becomes unavailable mIsBGMEnabled = %d", mIsBGMEnabled);
+            }
+#endif //BGM_ENABLED
+
             // remove device from available output devices
             mAvailableOutputDevices = (audio_devices_t)(mAvailableOutputDevices & ~device);
+
+            // Change policy in the case of wsHS unplugging with BT A2DP connected:
+            // at that moment, the FORCE_NO_BT_A2DP flag is set; that unfortunately leads to select
+            // temporarily the speaker as output until setForceUse(FORCE_NONE) is called
+            // by AudioService.
+            // Check that BT A2DP connection is available, and that there is no WIDI
+            // device, otherwise keep the flag to prioritize WIDI over BT A2DP
+            if ((device == AudioSystem::DEVICE_OUT_WIRED_HEADSET) ||
+                (device == AudioSystem::DEVICE_OUT_WIRED_HEADPHONE)){
+                if ((mForceUse[AudioSystem::FOR_MEDIA] == AudioSystem::FORCE_NO_BT_A2DP) &&
+                    (getA2dpOutput() != 0) &&
+                    !((mAvailableOutputDevices & AudioSystem::DEVICE_OUT_WIDI) ||
+                            (mAvailableOutputDevices & AudioSystem::DEVICE_OUT_REMOTE_SUBMIX))) {
+                    ALOGD("Disabling priority over BT A2DP for MEDIA streams");
+                    mForceUse[AudioSystem::FOR_MEDIA] = AudioSystem::FORCE_NONE;
+                }
+            }
 
             checkOutputsForDevice(device, state, outputs);
             if (mHasA2dp && audio_is_a2dp_device(device)) {
@@ -157,6 +254,10 @@ status_t AudioPolicyManagerBase::setDeviceConnectionState(audio_devices_t device
             return BAD_VALUE;
         }
 
+        /*set the direct output thread flag to false always. It will be
+          reset when the stream is started*/
+        mIsDirectOutputActive =  false;
+
         checkA2dpSuspend();
         checkOutputForAllStrategies();
         // outputs must be closed after checkOutputForAllStrategies() is executed
@@ -178,11 +279,18 @@ status_t AudioPolicyManagerBase::setDeviceConnectionState(audio_devices_t device
             // do not force device change on duplicated output because if device is 0, it will
             // also force a device 0 for the two outputs it is duplicated to which may override
             // a valid device selection on those outputs.
-            setOutputDevice(mOutputs.keyAt(i),
-                            getNewDevice(mOutputs.keyAt(i), true /*fromCache*/),
-                            !mOutputs.valueAt(i)->isDuplicated(),
-                            0);
+            if(mOutputs.valueAt(i)->isActive()) {
+                setOutputDevice(mOutputs.keyAt(i),
+                                getNewDevice(mOutputs.keyAt(i),
+                                true /*fromCache*/),
+                                !mOutputs.valueAt(i)->isDuplicated(),
+                                0);
+            }
         }
+#ifdef DOLBY_UDC
+        audio_devices_t audioOutputDevice = getDeviceForStrategy(getStrategy(AudioSystem::MUSIC), false);
+        setDolbySystemProperty(audioOutputDevice);
+#endif //DOLBY_UDC
 
         if (device == AUDIO_DEVICE_OUT_WIRED_HEADSET) {
             device = AUDIO_DEVICE_IN_WIRED_HEADSET;
@@ -293,7 +401,7 @@ void AudioPolicyManagerBase::setPhoneState(int state)
     }
 
     // if leaving call state, handle special case of active streams
-    // pertaining to sonification strategy see handleIncallSonification()
+    // pertaining to sonification strategies see handleIncallSonification()
     if (isInCall()) {
         ALOGV("setPhoneState() in call state management: new state is %d", state);
         for (int stream = 0; stream < AudioSystem::NUM_STREAM_TYPES; stream++) {
@@ -301,7 +409,7 @@ void AudioPolicyManagerBase::setPhoneState(int state)
         }
     }
 
-    // store previous phone state for management of sonification strategy below
+    // store previous phone state for management of sonification strategies below
     int oldState = mPhoneState;
     mPhoneState = state;
     bool force = false;
@@ -346,7 +454,7 @@ void AudioPolicyManagerBase::setPhoneState(int state)
         newDevice = hwOutputDesc->device();
     }
 
-    int delayMs = 0;
+    uint32_t delayMs = 0;
     if (isStateInCall(state)) {
         nsecs_t sysTime = systemTime();
         for (size_t i = 0; i < mOutputs.size(); i++) {
@@ -413,7 +521,8 @@ void AudioPolicyManagerBase::setForceUse(AudioSystem::force_use usage, AudioSyst
             config != AudioSystem::FORCE_WIRED_ACCESSORY &&
             config != AudioSystem::FORCE_ANALOG_DOCK &&
             config != AudioSystem::FORCE_DIGITAL_DOCK && config != AudioSystem::FORCE_NONE &&
-            config != AudioSystem::FORCE_NO_BT_A2DP) {
+            config != AudioSystem::FORCE_NO_BT_A2DP &&
+            config != AudioSystem::FORCE_WIDI) {
             ALOGW("setForceUse() invalid config %d for FOR_MEDIA", config);
             return;
         }
@@ -488,6 +597,16 @@ AudioSystem::forced_config AudioPolicyManagerBase::getForceUse(AudioSystem::forc
 void AudioPolicyManagerBase::setSystemProperty(const char* property, const char* value)
 {
     ALOGV("setSystemProperty() property %s, value %s", property, value);
+    if (strcmp(property, "ro.camera.sound.forced") == 0) {
+        if (atoi(value)) {
+            ALOGV("ENFORCED_AUDIBLE cannot be muted");
+            mStreams[AudioSystem::ENFORCED_AUDIBLE].mCanBeMuted = false;
+        } else {
+            ALOGV("ENFORCED_AUDIBLE can be muted");
+            mStreams[AudioSystem::ENFORCED_AUDIBLE].mCanBeMuted = true;
+        }
+    }
+
 }
 
 // Find a direct output profile compatible with the parameters passed, even if the input flags do
@@ -513,7 +632,15 @@ AudioPolicyManagerBase::IOProfile *AudioPolicyManagerBase::getProfileForDirectOu
                         return mHwModules[i]->mOutputProfiles[j];
                     }
                 }
-            } else {
+            } else if((channelMask <= AUDIO_CHANNEL_OUT_STEREO) &&
+                      (device == AudioSystem::DEVICE_OUT_AUX_DIGITAL) &&
+                       !(flags & AUDIO_OUTPUT_FLAG_DIRECT)){
+                  /*Direct output is selected only for multichannel content over HDMI
+                  NOTE - if stereo contents needs direct thread over HDMI; this condition
+                       needs to be removed or flags must have direct set*/
+                  ALOGI("make direct output unavaiable for stereo clips");
+                  return 0;
+           } else {
                 if (profile->isCompatibleProfile(device, samplingRate, format,
                                            channelMask,
                                            AUDIO_OUTPUT_FLAG_DIRECT)) {
@@ -527,6 +654,12 @@ AudioPolicyManagerBase::IOProfile *AudioPolicyManagerBase::getProfileForDirectOu
     return 0;
 }
 
+bool AudioPolicyManagerBase::isStreamValid(AudioSystem::stream_type stream)
+{
+    return ((AudioSystem::stream_type) 0 <= stream) &&
+        (stream < AudioSystem::NUM_STREAM_TYPES);
+}
+
 audio_io_handle_t AudioPolicyManagerBase::getOutput(AudioSystem::stream_type stream,
                                     uint32_t samplingRate,
                                     uint32_t format,
@@ -534,12 +667,37 @@ audio_io_handle_t AudioPolicyManagerBase::getOutput(AudioSystem::stream_type str
                                     AudioSystem::output_flags flags,
                                     const audio_offload_info_t *offloadInfo)
 {
+    ALOGI("APM: getOutput");
+
+    if (!isStreamValid(stream)) {
+        ALOGE("getOutput() invalid stream of type %d", stream);
+        return 0;
+    }
     audio_io_handle_t output = 0;
     uint32_t latency = 0;
+
+#ifdef BGM_ENABLED
+    //There can be scenarios where the user selects/deselects bgm support
+    //  hence check for the support before opening any output
+    if (IsRemoteBGMSupported(stream)) {
+       ALOGV("[BGMUSIC] remote background music support active");
+    }
+    // override the strategy if BGM is enabled
+    routing_strategy strategy = getStrategyforbackgroundsink((AudioSystem::stream_type)stream);
+#else
     routing_strategy strategy = getStrategy((AudioSystem::stream_type)stream);
+#endif //BGM_ENABLED
+
     audio_devices_t device = getDeviceForStrategy(strategy, false /*fromCache*/);
     ALOGV("getOutput() device %d, stream %d, samplingRate %d, format %x, channelMask %x, flags %x",
           device, stream, samplingRate, format, channelMask, flags);
+#ifdef BGM_ENABLED
+    //BGMUSIC support - if more than one instance requests
+    // the same device, force different sink for other instances.
+    if (IsRemoteBGMSupported(stream) && (flags != (AudioSystem::output_flags)AUDIO_OUTPUT_FLAG_REMOTE_BGM)) {
+         device = getDeviceForStrategy(STRATEGY_BACKGROUND_MUSIC, false /*fromCache*/);
+    }
+#endif //BGM_ENABLED
 
 #ifdef AUDIO_POLICY_TEST
     if (mCurOutput != 0) {
@@ -574,6 +732,15 @@ audio_io_handle_t AudioPolicyManagerBase::getOutput(AudioSystem::stream_type str
     }
 #endif //AUDIO_POLICY_TEST
 
+    //This workaround disables deep buffer in case of remote devices.
+    //This needs to be enabled after fixing the multiple stream
+    //routing issue with deep buffer.
+    if (((flags & AUDIO_OUTPUT_FLAG_DEEP_BUFFER) != 0) &&
+        ((mAvailableOutputDevices & AudioSystem::DEVICE_OUT_WIDI) ||
+        (mAvailableOutputDevices & AudioSystem::DEVICE_OUT_REMOTE_SUBMIX))) {
+        flags = (AudioSystem::output_flags)(flags & ~AUDIO_OUTPUT_FLAG_DEEP_BUFFER);
+    }
+
     // open a direct output if required by specified parameters
     //force direct flag if offload flag is set: offloading implies a direct output stream
     // and all common behaviors are driven by checking only the direct flag
@@ -582,11 +749,22 @@ audio_io_handle_t AudioPolicyManagerBase::getOutput(AudioSystem::stream_type str
         flags = (AudioSystem::output_flags)(flags | AUDIO_OUTPUT_FLAG_DIRECT);
     }
 
-    IOProfile *profile = getProfileForDirectOutput(device,
-                                                   samplingRate,
-                                                   format,
-                                                   channelMask,
-                                                   (audio_output_flags_t)flags);
+    // Do not allow offloading if one non offloadable effect is enabled. This prevents from
+    // creating an offloaded track and tearing it down immediately after start when audioflinger
+    // detects there is an active non offloadable effect.
+    // FIXME: We should check the audio session here but we do not have it in this context.
+    // This may prevent offloading in rare situations where effects are left active by apps
+    // in the background.
+    IOProfile *profile = NULL;
+    if (((flags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) == 0) ||
+            !isNonOffloadableEffectEnabled()) {
+        profile = getProfileForDirectOutput(device,
+                                           samplingRate,
+                                           format,
+                                           channelMask,
+                                           (audio_output_flags_t)flags);
+    }
+
     if (profile != NULL) {
         AudioOutputDescriptor *outputDesc = NULL;
 
@@ -663,12 +841,38 @@ audio_io_handle_t AudioPolicyManagerBase::getOutput(AudioSystem::stream_type str
         // routing change will happen when startOutput() will be called
         SortedVector<audio_io_handle_t> outputs = getOutputsForDevice(device, mOutputs);
 
+#ifdef BGM_ENABLED
+        if (IsRemoteBGMSupported(stream) && (flags == 0)) {
+           // the default flags for music streams when bgm is active
+           // is AUDIO_OUTPUT_FLAG_REMOTE_BGM and the same will be used to select the outputs
+           int tempflags = AUDIO_OUTPUT_FLAG_REMOTE_BGM;
+           output = selectOutput(outputs, (AudioSystem::output_flags)tempflags);
+        } else {
+#endif
         output = selectOutput(outputs, flags);
-    }
+#ifdef BGM_ENABLED
+         }
+#endif
+      }
+
     ALOGW_IF((output == 0), "getOutput() could not find output for stream %d, samplingRate %d,"
             "format %d, channels %x, flags %x", stream, samplingRate, format, channelMask, flags);
 
     ALOGV("getOutput() returns output %d", output);
+
+#ifdef BGM_ENABLED
+  //The check for flag is added to over come dummy getoutputs with
+  // invalid parameters JIC
+  //We check for flags as there can be a possibility of deep buffer
+  // enabled music streams in addition to BGM sink stream
+    if ((stream == AudioSystem::MUSIC)
+        && ((flags == (AudioSystem::output_flags)AUDIO_OUTPUT_FLAG_REMOTE_BGM))
+        && (mIsBGMEnabled)
+        && (device & AUDIO_DEVICE_OUT_REMOTE_BGM_SINK)) {
+            mBGMOutput = output;
+            ALOGV("[BGMUSIC] save output %d", mBGMOutput);
+    }
+#endif //BGM_ENABLED
 
     return output;
 }
@@ -724,6 +928,12 @@ status_t AudioPolicyManagerBase::startOutput(audio_io_handle_t output,
                                              int session)
 {
     ALOGV("startOutput() output %d, stream %d, session %d", output, stream, session);
+
+    if (!isStreamValid(stream)) {
+        ALOGE("startOutput() invalid stream of type %d", stream);
+        return BAD_VALUE;
+    }
+
     ssize_t index = mOutputs.indexOfKey(output);
     if (index < 0) {
         ALOGW("startOutput() unknow output %d", output);
@@ -732,16 +942,32 @@ status_t AudioPolicyManagerBase::startOutput(audio_io_handle_t output,
 
     AudioOutputDescriptor *outputDesc = mOutputs.valueAt(index);
 
-    // increment usage count for this stream on the requested output:
+    if (outputDesc->mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) {
+    // Informs primary HAL that a compressed output will be started
+        AudioParameter param;
+        param.addInt(String8(AudioParameter::keyStreamFlags), AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD);
+        mpClientInterface->setParameters(0, param.toString(), 0);
+    // Stores the current audio sessionId for use in gapless offlaoded playback.
+    // mMusicOffloadSessionId = session;
+    }
+    //increment usage count for this stream on the requested output:
     // NOTE that the usage count is the same for duplicated output and hardware output which is
     // necessary for a correct control of hardware output routing by startOutput() and stopOutput()
     outputDesc->changeRefCount(stream, 1);
 
+    if((outputDesc->mFlags & AudioSystem::OUTPUT_FLAG_DIRECT) && (mAvailableOutputDevices & AudioSystem::DEVICE_OUT_AUX_DIGITAL)){
+       ALOGD("startoutput() Direct thread is active");
+       mIsDirectOutputActive = true;
+    }
+
     if (outputDesc->mRefCount[stream] == 1) {
         audio_devices_t newDevice = getNewDevice(output, false /*fromCache*/);
+#ifdef BGM_ENABLED
+        routing_strategy strategy = getStrategyforbackgroundsink(stream);
+#else
         routing_strategy strategy = getStrategy(stream);
-        bool shouldWait = (strategy == STRATEGY_SONIFICATION) ||
-                            (strategy == STRATEGY_SONIFICATION_RESPECTFUL);
+#endif //BGM_ENABLED
+        bool shouldWait = isSonificationStrategy(strategy);
         uint32_t waitMs = 0;
         bool force = false;
         for (size_t i = 0; i < mOutputs.size(); i++) {
@@ -783,6 +1009,18 @@ status_t AudioPolicyManagerBase::startOutput(audio_io_handle_t output,
             usleep((waitMs - muteWaitMs) * 2 * 1000);
         }
     }
+#ifdef DOLBY_UDC
+    // It is observed that in some use-cases where both outputs are present
+    // eg. bluetooth and headphone,the output for particular stream type is
+    // decided in this routine. Hence we must call getDeviceForStrategy in
+    // order to get the current active output device for this stream type
+    // and update the dolby system property.
+    if (stream == AudioSystem::MUSIC)
+    {
+        audio_devices_t audioOutputDevice = getDeviceForStrategy(getStrategy(AudioSystem::MUSIC), false);
+        setDolbySystemProperty(audioOutputDevice);
+    }
+#endif // DOLBY_UDC
     return NO_ERROR;
 }
 
@@ -792,6 +1030,11 @@ status_t AudioPolicyManagerBase::stopOutput(audio_io_handle_t output,
                                             int session)
 {
     ALOGV("stopOutput() output %d, stream %d, session %d", output, stream, session);
+    if (!isStreamValid(stream)) {
+        ALOGE("stopOutput() invalid stream of type %d", stream);
+        return BAD_VALUE;
+    }
+
     ssize_t index = mOutputs.indexOfKey(output);
     if (index < 0) {
         ALOGW("stopOutput() unknow output %d", output);
@@ -800,12 +1043,24 @@ status_t AudioPolicyManagerBase::stopOutput(audio_io_handle_t output,
 
     AudioOutputDescriptor *outputDesc = mOutputs.valueAt(index);
 
+    if((outputDesc->mFlags & AudioSystem::OUTPUT_FLAG_DIRECT) && (mAvailableOutputDevices & AudioSystem::DEVICE_OUT_AUX_DIGITAL)){
+       ALOGD("stopoutput() Direct thread is stopped -inactive");
+       mIsDirectOutputActive = false;
+    }
+
     // handle special case for sonification while in call
     if (isInCall()) {
         handleIncallSonification(stream, false, false);
     }
 
     if (outputDesc->mRefCount[stream] > 0) {
+        if (outputDesc->mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) {
+            // Informs primary HAL that a compressed output stops
+            AudioParameter param;
+            param.addInt(String8(AudioParameter::keyStreamFlags), AUDIO_OUTPUT_FLAG_NONE);
+            mpClientInterface->setParameters(0, param.toString(), 0);
+        }
+
         // decrement usage count of this stream on the output
         outputDesc->changeRefCount(stream, -1);
         // store time at which the stream was stopped - see isStreamActive()
@@ -837,6 +1092,15 @@ status_t AudioPolicyManagerBase::stopOutput(audio_io_handle_t output,
             // update the outputs if stopping one with a stream that can affect notification routing
             handleNotificationRoutingForStream(stream);
         }
+
+#ifdef BGM_ENABLED
+        if (IsRemoteBGMSupported(stream) && (output == mBGMOutput) &&
+                (outputDesc->mRefCount[stream] == 0)) {
+            mBGMOutput = 0;
+            ALOGD("[BGMUSIC] stopOutput() clear background output refcount = %d",outputDesc->mRefCount[stream]);
+        }
+#endif //BGM_ENABLED
+
         return NO_ERROR;
     } else {
         ALOGW("stopOutput() refcount is already 0 for output %d", output);
@@ -1043,7 +1307,8 @@ status_t AudioPolicyManagerBase::stopInput(audio_io_handle_t input)
         }
 
         AudioParameter param = AudioParameter();
-        param.addInt(String8(AudioParameter::keyRouting), 0);
+        // AUDIO_DEVICE_BIT_IN value allows to stop any audio input stream
+        param.addInt(String8(AudioParameter::keyRouting), AUDIO_DEVICE_BIT_IN);
         mpClientInterface->setParameters(input, param.toString());
         inputDesc->mRefCount = 0;
         return NO_ERROR;
@@ -1069,6 +1334,12 @@ void AudioPolicyManagerBase::initStreamVolume(AudioSystem::stream_type stream,
                                             int indexMax)
 {
     ALOGV("initStreamVolume() stream %d, min %d, max %d", stream , indexMin, indexMax);
+
+    if (!isStreamValid(stream)) {
+        ALOGE("initStreamVolume() invalid stream of type %d", stream);
+        return;
+    }
+
     if (indexMin < 0 || indexMin >= indexMax) {
         ALOGW("initStreamVolume() invalid index limits for stream %d, min %d, max %d", stream , indexMin, indexMax);
         return;
@@ -1081,6 +1352,10 @@ status_t AudioPolicyManagerBase::setStreamVolumeIndex(AudioSystem::stream_type s
                                                       int index,
                                                       audio_devices_t device)
 {
+    if (!isStreamValid(stream)) {
+        ALOGE("setStreamVolumeIndex() invalid stream of type %d", stream);
+        return BAD_VALUE;
+    }
 
     if ((index < mStreams[stream].mIndexMin) || (index > mStreams[stream].mIndexMax)) {
         return BAD_VALUE;
@@ -1121,6 +1396,11 @@ status_t AudioPolicyManagerBase::getStreamVolumeIndex(AudioSystem::stream_type s
                                                       int *index,
                                                       audio_devices_t device)
 {
+    if (!isStreamValid(stream)) {
+        ALOGE("getStreamVolumeIndex() invalid stream of type %d", stream);
+        return BAD_VALUE;
+    }
+
     if (index == NULL) {
         return BAD_VALUE;
     }
@@ -1163,9 +1443,11 @@ audio_io_handle_t AudioPolicyManagerBase::selectOutputForEffects(
         if ((desc->mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) != 0) {
             outputOffloaded = outputs[i];
         }
+#ifndef DOLBY_DAP_OPENSLES
         if ((desc->mFlags & AUDIO_OUTPUT_FLAG_DEEP_BUFFER) != 0) {
             outputDeepBuffer = outputs[i];
         }
+#endif
     }
 
     ALOGV("selectOutputForEffects outputOffloaded %d outputDeepBuffer %d",
@@ -1297,6 +1579,20 @@ status_t AudioPolicyManagerBase::setEffectEnabled(EffectDescriptor *pDesc, bool 
     }
     pDesc->mEnabled = enabled;
     return NO_ERROR;
+}
+
+bool AudioPolicyManagerBase::isNonOffloadableEffectEnabled()
+{
+    for (size_t i = 0; i < mEffects.size(); i++) {
+        const EffectDescriptor * const pDesc = mEffects.valueAt(i);
+        if (pDesc->mEnabled && (pDesc->mStrategy == STRATEGY_MEDIA) &&
+                ((pDesc->mDesc.flags & EFFECT_FLAG_OFFLOAD_SUPPORTED) == 0)) {
+            ALOGV("isNonOffloadableEffectEnabled() non offloadable effect %s enabled on session %d",
+                  pDesc->mDesc.name, pDesc->mSession);
+            return true;
+        }
+    }
+    return false;
 }
 
 bool AudioPolicyManagerBase::isStreamActive(int stream, uint32_t inPastMs) const
@@ -1472,6 +1768,16 @@ bool AudioPolicyManagerBase::isOffloadSupported(const audio_offload_info_t& offl
         return false;
     }
 
+    // Do not allow offloading if one non offloadable effect is enabled. This prevents from
+    // creating an offloaded track and tearing it down immediately after start when audioflinger
+    // detects there is an active non offloadable effect.
+    // FIXME: We should check the audio session here but we do not have it in this context.
+    // This may prevent offloading in rare situations where effects are left active by apps
+    // in the background.
+    if (isNonOffloadableEffectEnabled()) {
+        return false;
+    }
+
     // See if there is a profile to support this.
     // AUDIO_DEVICE_NONE
     IOProfile *profile = getProfileForDirectOutput(AUDIO_DEVICE_NONE /*ignore device */,
@@ -1497,7 +1803,10 @@ AudioPolicyManagerBase::AudioPolicyManagerBase(AudioPolicyClientInterface *clien
     mPhoneState(AudioSystem::MODE_NORMAL),
     mLimitRingtoneVolume(false), mLastVoiceVolume(-1.0f),
     mTotalEffectsCpuLoad(0), mTotalEffectsMemory(0),
-    mA2dpSuspended(false), mHasA2dp(false), mHasUsb(false), mHasRemoteSubmix(false)
+    mA2dpSuspended(false), mHasA2dp(false), mHasUsb(false), mHasRemoteSubmix(false),
+    mSpeakerDrcEnabled(false),
+    mIsBGMEnabled(false),
+    mBGMOutput(0)
 {
     mpClientInterface = clientInterface;
 
@@ -1505,8 +1814,12 @@ AudioPolicyManagerBase::AudioPolicyManagerBase(AudioPolicyClientInterface *clien
         mForceUse[i] = AudioSystem::FORCE_NONE;
     }
 
-    initializeVolumeCurves();
-
+#ifdef DOLBY_UDC
+    // Set dolby system property to speaker while booting, if any other
+    // device is plugged-in setDeviceConnectionState will be called which
+    // should set appropriate system property.
+    setDolbySystemProperty(AUDIO_DEVICE_OUT_SPEAKER);
+#endif // DOLBY_UDC
     mA2dpDeviceAddress = String8("");
     mScoDeviceAddress = String8("");
     mUsbCardAndDevice = String8("");
@@ -1517,6 +1830,9 @@ AudioPolicyManagerBase::AudioPolicyManagerBase(AudioPolicyClientInterface *clien
             defaultAudioPolicyConfig();
         }
     }
+
+    // must be done after reading the policy
+    initializeVolumeCurves();
 
     // open all output streams needed to access attached devices
     for (size_t i = 0; i < mHwModules.size(); i++) {
@@ -1925,12 +2241,47 @@ status_t AudioPolicyManagerBase::checkOutputsForDevice(audio_devices_t device,
                         output = 0;
                     }
                 }
+#ifdef DOLBY_UDC
+                if (device == AUDIO_DEVICE_OUT_AUX_DIGITAL)
+                {
+                    bool supportHDMI8 = false;
+                    for (uint32_t i = 0; i < profile->mChannelMasks.size(); ++i)
+                    {
+                        audio_channel_mask_t channelMask = profile->mChannelMasks[i];
+                        if (channelMask == AUDIO_CHANNEL_OUT_7POINT1)
+                        {
+                            supportHDMI8 = true;
+                            break;
+                        }
+                    }
+
+                    if (supportHDMI8)
+                    {
+                        ALOGV("DOLBY_ENDPOINT mCurrentHdmiDeviceCapability = HDMI_8");
+                        mCurrentHdmiDeviceCapability = HDMI_8;
+                    }
+                    else
+                    {
+                        ALOGV("DOLBY_ENDPOINT mCurrentHdmiDeviceCapability = HDMI_6");
+                        mCurrentHdmiDeviceCapability = HDMI_6;
+                    }
+                }
+#endif //DOLBY_UDC
             }
             if (output == 0) {
                 ALOGW("checkOutputsForDevice() could not open output for device %x", device);
                 delete desc;
                 profiles.removeAt(profile_index);
                 profile_index--;
+#ifdef DOLBY_UDC
+                if (device == AUDIO_DEVICE_OUT_AUX_DIGITAL)
+                {
+                    // Seems the current behaviour for HDMI 2 case is to have
+                    // output to be equal to 0.
+                    ALOGV("DOLBY_ENDPOINT mCurrentHdmiDeviceCapability = HDMI_2");
+                    mCurrentHdmiDeviceCapability = HDMI_2;
+                }
+#endif // DOLBY_UDC
             } else {
                 outputs.add(output);
                 ALOGV("checkOutputsForDevice(): adding output %d", output);
@@ -1942,6 +2293,13 @@ status_t AudioPolicyManagerBase::checkOutputsForDevice(audio_devices_t device,
             return BAD_VALUE;
         }
     } else {
+#ifdef DOLBY_UDC
+        if (device == AUDIO_DEVICE_OUT_AUX_DIGITAL)
+        {
+            mCurrentHdmiDeviceCapability = HDMI_INVALID;
+            ALOGV("DOLBY_ENDPOINT mCurrentHdmiDeviceCapability = HDMI_INVALID");
+        }
+#endif //DOLBY_UDC
         // check if one opened output is not needed any more after disconnecting one device
         for (size_t i = 0; i < mOutputs.size(); i++) {
             desc = mOutputs.valueAt(i);
@@ -2021,11 +2379,21 @@ void AudioPolicyManagerBase::closeOutput(audio_io_handle_t output)
         }
     }
 
+    mIsDirectOutputActive =  false;
+    ALOGV("closeOtput: mIsDirectOutputActive = %d",mIsDirectOutputActive);
+
     AudioParameter param;
     param.add(String8("closing"), String8("true"));
     mpClientInterface->setParameters(output, param.toString());
 
     mpClientInterface->closeOutput(output);
+
+#ifdef BGM_ENABLED
+    if ((mIsBGMEnabled) && (output == mBGMOutput)) {
+         mBGMOutput = 0;
+         ALOGD("[BGMUSIC] closeOutput() clear background output");
+    }
+#endif //BGM_ENABLED
     delete outputDesc;
     mOutputs.removeItem(output);
     mPreviousOutputs = mOutputs;
@@ -2077,7 +2445,7 @@ void AudioPolicyManagerBase::checkOutputForStrategy(routing_strategy strategy)
             AudioOutputDescriptor *desc = mOutputs.valueFor(srcOutputs[i]);
             if (desc->isStrategyActive(strategy)) {
                 setStrategyMute(strategy, true, srcOutputs[i]);
-                setStrategyMute(strategy, false, srcOutputs[i], MUTE_TIME_MS, newDevice);
+                setStrategyMute(strategy, false, srcOutputs[i], desc->mLatency*2, newDevice);
             }
         }
 
@@ -2102,7 +2470,11 @@ void AudioPolicyManagerBase::checkOutputForStrategy(routing_strategy strategy)
         }
         // Move tracks associated to this strategy from previous output to new output
         for (int i = 0; i < (int)AudioSystem::NUM_STREAM_TYPES; i++) {
+#ifdef BGM_ENABLED
+            if (getStrategyforbackgroundsink((AudioSystem::stream_type)i) == strategy) {
+#else
             if (getStrategy((AudioSystem::stream_type)i) == strategy) {
+#endif //BGM_ENABLED
                 //FIXME see fixme on name change
                 mpClientInterface->setStreamOutput((AudioSystem::stream_type)i,
                                                    dstOutputs[0] /* ignored */);
@@ -2117,11 +2489,12 @@ void AudioPolicyManagerBase::checkOutputForAllStrategies()
     checkOutputForStrategy(STRATEGY_PHONE);
     checkOutputForStrategy(STRATEGY_SONIFICATION);
     checkOutputForStrategy(STRATEGY_SONIFICATION_RESPECTFUL);
+    checkOutputForStrategy(STRATEGY_SONIFICATION_LOCAL);
     checkOutputForStrategy(STRATEGY_MEDIA);
     checkOutputForStrategy(STRATEGY_DTMF);
 }
 
-audio_io_handle_t AudioPolicyManagerBase::getA2dpOutput()
+audio_io_handle_t AudioPolicyManagerBase::getA2dpOutput() const
 {
     if (!mHasA2dp) {
         return 0;
@@ -2192,25 +2565,34 @@ audio_devices_t AudioPolicyManagerBase::getNewDevice(audio_io_handle_t output, b
     //      use device for strategy enforced audible
     // 2: we are in call or the strategy phone is active on the output:
     //      use device for strategy phone
-    // 3: the strategy sonification is active on the output:
+    // 3: the strategy sonification_local is active on the output:
+    //      use device for strategy sonification_local
+    // 4: the strategy sonification is active on the output:
     //      use device for strategy sonification
-    // 4: the strategy "respectful" sonification is active on the output:
+    // 5: the strategy "respectful" sonification is active on the output:
     //      use device for strategy "respectful" sonification
-    // 5: the strategy media is active on the output:
+    // 6: the strategy media is active on the output:
     //      use device for strategy media
-    // 6: the strategy DTMF is active on the output:
+    // 7: the strategy DTMF is active on the output:
     //      use device for strategy DTMF
     if (outputDesc->isStrategyActive(STRATEGY_ENFORCED_AUDIBLE)) {
         device = getDeviceForStrategy(STRATEGY_ENFORCED_AUDIBLE, fromCache);
     } else if (isInCall() ||
                     outputDesc->isStrategyActive(STRATEGY_PHONE)) {
         device = getDeviceForStrategy(STRATEGY_PHONE, fromCache);
+    }  else if (outputDesc->isStrategyActive(STRATEGY_SONIFICATION_LOCAL)) {
+        device = getDeviceForStrategy(STRATEGY_SONIFICATION_LOCAL, fromCache);
     } else if (outputDesc->isStrategyActive(STRATEGY_SONIFICATION)) {
         device = getDeviceForStrategy(STRATEGY_SONIFICATION, fromCache);
     } else if (outputDesc->isStrategyActive(STRATEGY_SONIFICATION_RESPECTFUL)) {
         device = getDeviceForStrategy(STRATEGY_SONIFICATION_RESPECTFUL, fromCache);
     } else if (outputDesc->isStrategyActive(STRATEGY_MEDIA)) {
         device = getDeviceForStrategy(STRATEGY_MEDIA, fromCache);
+#ifdef BGM_ENABLED
+    } else if (mIsBGMEnabled ||
+                 outputDesc->isStrategyActive(STRATEGY_BACKGROUND_MUSIC)) {
+        device = getDeviceForStrategy(STRATEGY_BACKGROUND_MUSIC, fromCache);
+#endif //BGM_ENABLED
     } else if (outputDesc->isStrategyActive(STRATEGY_DTMF)) {
         device = getDeviceForStrategy(STRATEGY_DTMF, fromCache);
     }
@@ -2220,7 +2602,11 @@ audio_devices_t AudioPolicyManagerBase::getNewDevice(audio_io_handle_t output, b
 }
 
 uint32_t AudioPolicyManagerBase::getStrategyForStream(AudioSystem::stream_type stream) {
+#ifdef BGM_ENABLED
+    return (uint32_t)getStrategyforbackgroundsink(stream);
+#else
     return (uint32_t)getStrategy(stream);
+#endif //BGM_ENABLED
 }
 
 audio_devices_t AudioPolicyManagerBase::getDevicesForStream(AudioSystem::stream_type stream) {
@@ -2231,11 +2617,53 @@ audio_devices_t AudioPolicyManagerBase::getDevicesForStream(AudioSystem::stream_
     if (stream < (AudioSystem::stream_type) 0 || stream >= AudioSystem::NUM_STREAM_TYPES) {
         devices = AUDIO_DEVICE_NONE;
     } else {
-        AudioPolicyManagerBase::routing_strategy strategy = getStrategy(stream);
+#ifdef BGM_ENABLED
+        AudioPolicyManagerBase::routing_strategy strategy  = getStrategyforbackgroundsink(stream);
+#else
+        AudioPolicyManagerBase::routing_strategy strategy  = getStrategy(stream);
+#endif //BGM_ENABLED
         devices = getDeviceForStrategy(strategy, true /*fromCache*/);
     }
     return devices;
 }
+
+#ifdef BGM_ENABLED
+AudioPolicyManagerBase::routing_strategy AudioPolicyManagerBase::getStrategyforbackgroundsink(
+        AudioSystem::stream_type stream) {
+
+    // if bgm is enabled, all notifications, alarm, touch tones must be
+    // routed to the primary device user and it must not interfere with
+    // the remote user playback
+    if(mIsBGMEnabled) {
+      switch (stream) {
+      case AudioSystem::DTMF:
+      case AudioSystem::SYSTEM:
+      case AudioSystem::TTS:
+      case AudioSystem::ENFORCED_AUDIBLE:
+      case AudioSystem::RING:
+          return STRATEGY_BACKGROUND_MUSIC;
+      default:
+        ALOGVV("unsupported BGM strategy");
+      } //switch
+    }
+    // if widi device is connected, alarm must be heard only in local,
+    // notification must be heard on both DUT and Widi
+    // in all modes
+    if(((mAvailableOutputDevices & AudioSystem::DEVICE_OUT_WIDI) ||
+        (mAvailableOutputDevices & AudioSystem::DEVICE_OUT_REMOTE_SUBMIX))) {
+        switch (stream) {
+        case AudioSystem::ALARM:
+            return STRATEGY_SONIFICATION_LOCAL;
+        case AudioSystem::NOTIFICATION:
+            return STRATEGY_SONIFICATION;
+        default:
+            break;
+        }
+    }
+
+    return getStrategy(stream);
+}
+#endif// BGM_ENABLED
 
 AudioPolicyManagerBase::routing_strategy AudioPolicyManagerBase::getStrategy(
         AudioSystem::stream_type stream) {
@@ -2245,18 +2673,32 @@ AudioPolicyManagerBase::routing_strategy AudioPolicyManagerBase::getStrategy(
     case AudioSystem::BLUETOOTH_SCO:
         return STRATEGY_PHONE;
     case AudioSystem::RING:
+        return STRATEGY_SONIFICATION_LOCAL;
     case AudioSystem::ALARM:
-        return STRATEGY_SONIFICATION;
+        if(mIsDirectOutputActive)
+          return STRATEGY_SONIFICATION_LOCAL;
+        else
+          return STRATEGY_SONIFICATION;
     case AudioSystem::NOTIFICATION:
-        return STRATEGY_SONIFICATION_RESPECTFUL;
+        if(mIsDirectOutputActive)
+          return STRATEGY_SONIFICATION_LOCAL;
+        else
+          return STRATEGY_SONIFICATION_RESPECTFUL;
     case AudioSystem::DTMF:
-        return STRATEGY_DTMF;
+        if(mIsDirectOutputActive)
+          return STRATEGY_SONIFICATION_LOCAL;
+        else
+          return STRATEGY_DTMF;
     default:
         ALOGE("unknown stream type");
     case AudioSystem::SYSTEM:
         // NOTE: SYSTEM stream uses MEDIA strategy because muting music and switching outputs
         // while key clicks are played produces a poor result
     case AudioSystem::TTS:
+        if(mIsDirectOutputActive)
+          return STRATEGY_SONIFICATION_LOCAL;
+        else
+          return STRATEGY_MEDIA;
     case AudioSystem::MUSIC:
         return STRATEGY_MEDIA;
     case AudioSystem::ENFORCED_AUDIBLE:
@@ -2299,8 +2741,15 @@ audio_devices_t AudioPolicyManagerBase::getDeviceForStrategy(routing_strategy st
             //   if it's for local playback. Note also that we use the same delay between both tests
             device = getDeviceForStrategy(STRATEGY_SONIFICATION, false /*fromCache*/);
         } else if (isStreamActive(AudioSystem::MUSIC, SONIFICATION_RESPECTFUL_AFTER_MUSIC_DELAY)) {
-            // while media is playing (or has recently played), use the same device
+            // while media is playing (or has recently played),
+            // use the same device if device is not WIDI or HDMI,
+            // otherwise fall back on the sonification behavior
             device = getDeviceForStrategy(STRATEGY_MEDIA, false /*fromCache*/);
+            if (device == AudioSystem::DEVICE_OUT_WIDI ||
+                    device == AudioSystem::DEVICE_OUT_AUX_DIGITAL ||
+                    device == AudioSystem::DEVICE_OUT_REMOTE_SUBMIX) {
+                device = getDeviceForStrategy(STRATEGY_SONIFICATION, false /*fromCache*/);
+            }
         } else {
             // when media is not playing anymore, fall back on the sonification behavior
             device = getDeviceForStrategy(STRATEGY_SONIFICATION, false /*fromCache*/);
@@ -2356,6 +2805,10 @@ audio_devices_t AudioPolicyManagerBase::getDeviceForStrategy(routing_strategy st
                 if (device) break;
                 device = mAvailableOutputDevices & AUDIO_DEVICE_OUT_AUX_DIGITAL;
                 if (device) break;
+                device = mAvailableOutputDevices & AudioSystem::DEVICE_OUT_REMOTE_SUBMIX;
+                if (device) break;
+                device = mAvailableOutputDevices & AudioSystem::DEVICE_OUT_WIDI;
+                if (device) break;
                 device = mAvailableOutputDevices & AUDIO_DEVICE_OUT_ANLG_DOCK_HEADSET;
                 if (device) break;
             }
@@ -2385,6 +2838,10 @@ audio_devices_t AudioPolicyManagerBase::getDeviceForStrategy(routing_strategy st
                 if (device) break;
                 device = mAvailableOutputDevices & AUDIO_DEVICE_OUT_AUX_DIGITAL;
                 if (device) break;
+                device = mAvailableOutputDevices & AudioSystem::DEVICE_OUT_REMOTE_SUBMIX;
+                if (device) break;
+                device = mAvailableOutputDevices & AudioSystem::DEVICE_OUT_WIDI;
+                if (device) break;
                 device = mAvailableOutputDevices & AUDIO_DEVICE_OUT_ANLG_DOCK_HEADSET;
                 if (device) break;
             }
@@ -2398,6 +2855,7 @@ audio_devices_t AudioPolicyManagerBase::getDeviceForStrategy(routing_strategy st
         }
     break;
 
+    case STRATEGY_SONIFICATION_LOCAL:
     case STRATEGY_SONIFICATION:
 
         // If incall, just select the STRATEGY_PHONE device: The rest of the behavior is handled by
@@ -2413,23 +2871,67 @@ audio_devices_t AudioPolicyManagerBase::getDeviceForStrategy(routing_strategy st
         // except:
         //   - when in call where it doesn't default to STRATEGY_PHONE behavior
         //   - in countries where not enforced in which case it follows STRATEGY_MEDIA
-
-        if ((strategy == STRATEGY_SONIFICATION) ||
-                (mForceUse[AudioSystem::FOR_SYSTEM] == AudioSystem::FORCE_SYSTEM_ENFORCED)) {
-            device = mAvailableOutputDevices & AUDIO_DEVICE_OUT_SPEAKER;
+        if (strategy == STRATEGY_SONIFICATION || strategy == STRATEGY_SONIFICATION_LOCAL ||
+                !mStreams[AUDIO_STREAM_ENFORCED_AUDIBLE].mCanBeMuted) {
+            device = mAvailableOutputDevices & AudioSystem::DEVICE_OUT_SPEAKER;
+ 
             if (device == AUDIO_DEVICE_NONE) {
-                ALOGE("getDeviceForStrategy() speaker device not found for STRATEGY_SONIFICATION");
+                ALOGE("getDeviceForStrategy() speaker device not found for STRATEGY_SONIFICATION and STRATEGY_SONIFICATION_LOCAL");
             }
         }
         // The second device used for sonification is the same as the device used by media strategy
         // FALL THROUGH
 
     case STRATEGY_MEDIA: {
-        uint32_t device2 = AUDIO_DEVICE_NONE;
-        if (strategy != STRATEGY_SONIFICATION) {
-            // no sonification on remote submix (e.g. WFD)
-            device2 = mAvailableOutputDevices & AUDIO_DEVICE_OUT_REMOTE_SUBMIX;
+
+        // Follow STRATEGY_PHONE when all these conditions are met:
+        // - We are in call
+        // - ENFORCED_AUDIBLE streams can be muted (due to fallthrough)
+        // - No sink other than the primary is active
+        // - BGM is not active
+        if (isInCall() &&
+            device == AUDIO_DEVICE_NONE &&
+            !(device & AUDIO_DEVICE_OUT_REMOTE_BGM_SINK) && !(mIsBGMEnabled)) {
+            ALOGV("%s-  superseding STRATEGY_MEDIA while in call, follow STRATEGY_PHONE",
+                  __FUNCTION__);
+            device = getDeviceForStrategy(STRATEGY_PHONE, false);
+            break;
         }
+
+        uint32_t device2 = AUDIO_DEVICE_NONE;
+
+        switch (mForceUse[AudioSystem::FOR_MEDIA]) {
+            case AudioSystem::FORCE_SPEAKER:
+                device = mAvailableOutputDevices & AUDIO_DEVICE_OUT_SPEAKER;
+                  if (device)
+                    return device;
+                break;
+            case AudioSystem::FORCE_HEADPHONES:
+                device = mAvailableOutputDevices & AUDIO_DEVICE_OUT_WIRED_HEADPHONE;
+                if (device)
+                    return device;
+                 device = mAvailableOutputDevices & AUDIO_DEVICE_OUT_WIRED_HEADSET;
+                if (device)
+                    return device;
+                break;
+            default:
+                break;
+        }
+
+#ifdef BGM_ENABLED
+        //If BGM devices are present, always force the output to it
+        // - other attached sinks will be handled in STRATEGY_BACKGROUND_MUSIC
+        if (mIsBGMEnabled) {
+           if (device2 == AUDIO_DEVICE_NONE)
+               device2 = mAvailableOutputDevices &  AudioSystem::DEVICE_OUT_AUX_DIGITAL;
+           if ((device2 == AUDIO_DEVICE_NONE) && (strategy != STRATEGY_SONIFICATION_LOCAL))
+               device2 = mAvailableOutputDevices & AudioSystem::DEVICE_OUT_REMOTE_SUBMIX;
+           if ((device2 == AUDIO_DEVICE_NONE) && (strategy != STRATEGY_SONIFICATION_LOCAL))
+               device2 = mAvailableOutputDevices & AudioSystem::DEVICE_OUT_WIDI;
+           ALOGV("[BGMUSIC] STRATEGY_MEDIA - force aux/widi always device = %x",device2);
+        }
+#endif//BGM_ENABLED
+
         if ((device2 == AUDIO_DEVICE_NONE) &&
                 mHasA2dp && (mForceUse[AudioSystem::FOR_MEDIA] != AudioSystem::FORCE_NO_BT_A2DP) &&
                 (getA2dpOutput() != 0) && !mA2dpSuspended) {
@@ -2454,11 +2956,18 @@ audio_devices_t AudioPolicyManagerBase::getDeviceForStrategy(routing_strategy st
             device2 = mAvailableOutputDevices & AUDIO_DEVICE_OUT_USB_DEVICE;
         }
         if (device2 == AUDIO_DEVICE_NONE) {
-            device2 = mAvailableOutputDevices & AUDIO_DEVICE_OUT_DGTL_DOCK_HEADSET;
+            device2 = mAvailableOutputDevices & AudioSystem::DEVICE_OUT_DGTL_DOCK_HEADSET;
         }
-        if ((device2 == AUDIO_DEVICE_NONE) && (strategy != STRATEGY_SONIFICATION)) {
-            // no sonification on aux digital (e.g. HDMI)
-            device2 = mAvailableOutputDevices & AUDIO_DEVICE_OUT_AUX_DIGITAL;
+        if ((device2 == AUDIO_DEVICE_NONE) && (strategy != STRATEGY_SONIFICATION_LOCAL)) {
+            device2 = mAvailableOutputDevices & AudioSystem::DEVICE_OUT_AUX_DIGITAL;
+        }
+        if ((device2 == AUDIO_DEVICE_NONE) && (strategy != STRATEGY_SONIFICATION)
+                && (strategy != STRATEGY_SONIFICATION_LOCAL)) {
+            // no sonification on remote submix (e.g. WFD)
+            device2 = mAvailableOutputDevices & AUDIO_DEVICE_OUT_REMOTE_SUBMIX;
+        }
+        if ((device2 == AUDIO_DEVICE_NONE) && (strategy != STRATEGY_SONIFICATION_LOCAL)) {
+            device2 = mAvailableOutputDevices & AudioSystem::DEVICE_OUT_WIDI;
         }
         if ((device2 == AUDIO_DEVICE_NONE) &&
                 (mForceUse[AudioSystem::FOR_DOCK] == AudioSystem::FORCE_ANALOG_DOCK)) {
@@ -2467,9 +2976,8 @@ audio_devices_t AudioPolicyManagerBase::getDeviceForStrategy(routing_strategy st
         if (device2 == AUDIO_DEVICE_NONE) {
             device2 = mAvailableOutputDevices & AUDIO_DEVICE_OUT_SPEAKER;
         }
-
         // device is DEVICE_OUT_SPEAKER if we come from case STRATEGY_SONIFICATION or
-        // STRATEGY_ENFORCED_AUDIBLE, AUDIO_DEVICE_NONE otherwise
+        // STRATEGY_ENFORCED_AUDIBLE or STRATEGY_SONIFICATION_LOCAL, AUDIO_DEVICE_NONE otherwise
         device |= device2;
         if (device) break;
         device = mDefaultOutputDevice;
@@ -2477,6 +2985,45 @@ audio_devices_t AudioPolicyManagerBase::getDeviceForStrategy(routing_strategy st
             ALOGE("getDeviceForStrategy() no device found for STRATEGY_MEDIA");
         }
         } break;
+
+    case STRATEGY_BACKGROUND_MUSIC: {
+
+#ifdef BGM_ENABLED
+        uint32_t device2 = 0;
+
+        ALOGV("[BGMUSIC] STRATEGY_BACKGROUND_MUSIC");
+
+        if (mHasA2dp && (mForceUse[AudioSystem::FOR_MEDIA] != AudioSystem::FORCE_NO_BT_A2DP) &&
+            (getA2dpOutput() != 0) && !mA2dpSuspended) {
+            if (device2 == 0) {
+                device2 = mAvailableOutputDevices & AudioSystem::DEVICE_OUT_BLUETOOTH_A2DP;
+            }
+            if (device2 == 0) {
+                device2 = mAvailableOutputDevices & AudioSystem::DEVICE_OUT_BLUETOOTH_A2DP_HEADPHONES;
+            }
+            if (device2 == AUDIO_DEVICE_NONE) {
+                device2 = mAvailableOutputDevices & AUDIO_DEVICE_OUT_BLUETOOTH_A2DP_SPEAKER;
+            }
+        }
+        if (device2 == AUDIO_DEVICE_NONE) {
+            device2 = mAvailableOutputDevices & AUDIO_DEVICE_OUT_WIRED_HEADPHONE;
+        }
+        if (device2 == 0) {
+            device2 = mAvailableOutputDevices & AudioSystem::DEVICE_OUT_WIRED_HEADSET;
+        }
+        if (device2 == 0) {
+            device2 = mAvailableOutputDevices & AudioSystem::DEVICE_OUT_SPEAKER;
+        }
+
+        device |= device2;
+        if (device) break;
+        device = mDefaultOutputDevice;
+        if (device == 0) {
+            ALOGE("[BGMUSIC] getDeviceForStrategy() no device found for STRATEGY_BACKGROUND_MUSIC");
+        }
+#endif //BGM_ENABLED
+        } //STRATEGY_BACKGROUND_MUSIC
+        break;
 
     default:
         ALOGW("getDeviceForStrategy() unknown strategy: %d", strategy);
@@ -2593,13 +3140,39 @@ uint32_t AudioPolicyManagerBase::setOutputDevice(audio_io_handle_t output,
     // filter devices according to output selected
     device = (audio_devices_t)(device & outputDesc->mProfile->mSupportedDevices);
 
+#ifdef BGM_ENABLED
+     // force the routing if BGM state is on
+    if ( !isInCall() && (mIsBGMEnabled) && (output != mBGMOutput) &&
+        !(device & AUDIO_DEVICE_OUT_REMOTE_BGM_SINK)) {
+          device = getDeviceForStrategy(STRATEGY_BACKGROUND_MUSIC, false /*fromCache*/);
+          ALOGD("[BGMUSIC] BGM is ON, return new device for music =  %x",device);
+    }
+#endif //BGM_ENABLED
+
     audio_devices_t prevDevice = outputDesc->mDevice;
 
     ALOGV("setOutputDevice() prevDevice %04x", prevDevice);
 
     if (device != AUDIO_DEVICE_NONE) {
         outputDesc->mDevice = device;
+
+        // Force routing if previously asked for this output
+        if (outputDesc->mForceRouting) {
+            ALOGV("Force routing to current device as previous device was null for this output");
+            force = true;
+
+            // Request consumed. Reset mForceRouting to false
+            outputDesc->mForceRouting = false;
+        }
     }
+    else {
+        // Device is null and does not reflect the routing. Save the necessity to force
+        // re-routing upon next attempt to select a non-null device for this output
+        outputDesc->mForceRouting = true;
+        // When the current device is null, routing is not forced
+        force = false;
+    }
+
     muteWaitMs = checkDeviceMuteStrategies(outputDesc, prevDevice, delayMs);
 
     // Do not change the routing if:
@@ -2614,7 +3187,17 @@ uint32_t AudioPolicyManagerBase::setOutputDevice(audio_io_handle_t output,
     ALOGV("setOutputDevice() changing device");
     // do the routing
     param.addInt(String8(AudioParameter::keyRouting), (int)device);
-    mpClientInterface->setParameters(output, param.toString(), delayMs);
+    param.addInt(String8(AudioParameter::keyStreamFlags), (int)outputDesc->mFlags);
+    //delay the device switch by four times  the latency because for deep
+    //buffer playback buffer size is 192ms so that it still contain data
+    //that needs to be drained. So if the deep buffer stream is active
+    // apply a latency.
+    if(outputDesc->mFlags & AUDIO_OUTPUT_FLAG_DEEP_BUFFER) {
+        mpClientInterface->setParameters(output, param.toString(),
+                                          outputDesc->latency() * 2 * 2);
+    } else {
+        mpClientInterface->setParameters(output, param.toString(), delayMs);
+    }
 
     // update stream volumes according to new device
     applyStreamVolumes(output, device, delayMs);
@@ -2659,11 +3242,16 @@ audio_devices_t AudioPolicyManagerBase::getDeviceForInputSource(int inputSource)
       }
       // FALL THROUGH
 
+    case AUDIO_SOURCE_VOICE_COMMUNICATION:
+        if (mForceUse[AudioSystem::FOR_COMMUNICATION] == AudioSystem::FORCE_SPEAKER &&
+            mAvailableInputDevices & AUDIO_DEVICE_IN_BUILTIN_MIC) {
+            device = AUDIO_DEVICE_IN_BUILTIN_MIC;
+            break;
+        }
     case AUDIO_SOURCE_DEFAULT:
     case AUDIO_SOURCE_MIC:
     case AUDIO_SOURCE_VOICE_RECOGNITION:
     case AUDIO_SOURCE_HOTWORD:
-    case AUDIO_SOURCE_VOICE_COMMUNICATION:
         if (mForceUse[AudioSystem::FOR_RECORD] == AudioSystem::FORCE_BT_SCO &&
             mAvailableInputDevices & AUDIO_DEVICE_IN_BLUETOOTH_SCO_HEADSET) {
             device = AUDIO_DEVICE_IN_BLUETOOTH_SCO_HEADSET;
@@ -2674,7 +3262,11 @@ audio_devices_t AudioPolicyManagerBase::getDeviceForInputSource(int inputSource)
         }
         break;
     case AUDIO_SOURCE_CAMCORDER:
-        if (mAvailableInputDevices & AUDIO_DEVICE_IN_BACK_MIC) {
+        if (isInCall()) {
+            // To avoid disturbing an ongoing call, use the same device
+            // as the one used for uplink.
+            device = getDeviceForInputSource(AUDIO_SOURCE_VOICE_UPLINK);
+        } else if (mAvailableInputDevices & AUDIO_DEVICE_IN_BACK_MIC) {
             device = AUDIO_DEVICE_IN_BACK_MIC;
         } else if (mAvailableInputDevices & AUDIO_DEVICE_IN_BUILTIN_MIC) {
             device = AUDIO_DEVICE_IN_BUILTIN_MIC;
@@ -2764,6 +3356,7 @@ AudioPolicyManagerBase::device_category AudioPolicyManagerBase::getDeviceCategor
         case AUDIO_DEVICE_OUT_BLUETOOTH_SCO_CARKIT:
         case AUDIO_DEVICE_OUT_BLUETOOTH_A2DP_SPEAKER:
         case AUDIO_DEVICE_OUT_AUX_DIGITAL:
+        case AUDIO_DEVICE_OUT_WIDI:
         case AUDIO_DEVICE_OUT_USB_ACCESSORY:
         case AUDIO_DEVICE_OUT_USB_DEVICE:
         case AUDIO_DEVICE_OUT_REMOTE_SUBMIX:
@@ -2839,20 +3432,47 @@ const AudioPolicyManagerBase::VolumeCurvePoint
     {1, -29.7f}, {33, -20.1f}, {66, -10.2f}, {100, 0.0f}
 };
 
+const AudioPolicyManagerBase::VolumeCurvePoint
+    AudioPolicyManagerBase::sSpeakerSonificationVolumeCurveDrc[AudioPolicyManagerBase::VOLCNT] = {
+    {1, -35.7f}, {33, -26.1f}, {66, -13.2f}, {100, 0.0f}
+};
+
 // AUDIO_STREAM_SYSTEM, AUDIO_STREAM_ENFORCED_AUDIBLE and AUDIO_STREAM_DTMF volume tracks
 // AUDIO_STREAM_RING on phones and AUDIO_STREAM_MUSIC on tablets.
 // AUDIO_STREAM_DTMF tracks AUDIO_STREAM_VOICE_CALL while in call (See AudioService.java).
 // The range is constrained between -24dB and -6dB over speaker and -30dB and -18dB over headset.
+#ifdef TUNING_ENABLED
+const AudioPolicyManagerBase::VolumeCurvePoint
+    AudioPolicyManagerBase::sDefaultSystemVolumeCurve[AudioPolicyManagerBase::VOLCNT] = {
+    {1, -24.0f}, {33, -18.0f}, {66, -12.0f}, {100, -3.0f}
+};
 
+const AudioPolicyManagerBase::VolumeCurvePoint
+    AudioPolicyManagerBase::sHeadsetSystemVolumeCurve[AudioPolicyManagerBase::VOLCNT] = {
+    {1, -30.0f}, {33, -24.0f}, {66, -18.0f}, {100, -6.0f}
+};
+
+const AudioPolicyManagerBase::VolumeCurvePoint
+    AudioPolicyManagerBase::sDefaultSystemVolumeCurveDrc[AudioPolicyManagerBase::VOLCNT] = {
+    {1, -34.0f}, {33, -24.0f}, {66, -15.0f}, {100, -6.0f}
+};
+#else
 const AudioPolicyManagerBase::VolumeCurvePoint
     AudioPolicyManagerBase::sDefaultSystemVolumeCurve[AudioPolicyManagerBase::VOLCNT] = {
     {1, -24.0f}, {33, -18.0f}, {66, -12.0f}, {100, -6.0f}
 };
 
 const AudioPolicyManagerBase::VolumeCurvePoint
+    AudioPolicyManagerBase::sDefaultSystemVolumeCurveDrc[AudioPolicyManagerBase::VOLCNT] = {
+    {1, -34.0f}, {33, -24.0f}, {66, -15.0f}, {100, -6.0f}
+};
+
+const AudioPolicyManagerBase::VolumeCurvePoint
     AudioPolicyManagerBase::sHeadsetSystemVolumeCurve[AudioPolicyManagerBase::VOLCNT] = {
     {1, -30.0f}, {33, -26.0f}, {66, -22.0f}, {100, -18.0f}
 };
+
+#endif //TUNING_ENABLED
 
 const AudioPolicyManagerBase::VolumeCurvePoint
     AudioPolicyManagerBase::sDefaultVoiceVolumeCurve[AudioPolicyManagerBase::VOLCNT] = {
@@ -2927,20 +3547,27 @@ void AudioPolicyManagerBase::initializeVolumeCurves()
                     sVolumeProfiles[i][j];
         }
     }
+
+    // Check availability of DRC on speaker path: if available, override some of the speaker curves
+    if (mSpeakerDrcEnabled) {
+        mStreams[AUDIO_STREAM_SYSTEM].mVolumeCurve[DEVICE_CATEGORY_SPEAKER] =
+                sDefaultSystemVolumeCurveDrc;
+        mStreams[AUDIO_STREAM_RING].mVolumeCurve[DEVICE_CATEGORY_SPEAKER] =
+                sSpeakerSonificationVolumeCurveDrc;
+        mStreams[AUDIO_STREAM_ALARM].mVolumeCurve[DEVICE_CATEGORY_SPEAKER] =
+                sSpeakerSonificationVolumeCurveDrc;
+        mStreams[AUDIO_STREAM_NOTIFICATION].mVolumeCurve[DEVICE_CATEGORY_SPEAKER] =
+                sSpeakerSonificationVolumeCurveDrc;
+    }
 }
 
 float AudioPolicyManagerBase::computeVolume(int stream,
                                             int index,
-                                            audio_io_handle_t output,
                                             audio_devices_t device)
 {
+    LOG_ALWAYS_FATAL_IF(device == AUDIO_DEVICE_NONE);
     float volume = 1.0;
-    AudioOutputDescriptor *outputDesc = mOutputs.valueFor(output);
-    StreamDescriptor &streamDesc = mStreams[stream];
-
-    if (device == AUDIO_DEVICE_NONE) {
-        device = outputDesc->device();
-    }
+    const StreamDescriptor &streamDesc = mStreams[stream];
 
     // if volume is not 0 (not muted), force media volume to max on digital output
     if (stream == AudioSystem::MUSIC &&
@@ -2952,18 +3579,40 @@ float AudioPolicyManagerBase::computeVolume(int stream,
         return 1.0;
     }
 
+#ifdef BGM_ENABLED
+    if ((IsRemoteBGMSupported((AudioSystem::stream_type)stream)) &&
+        ((device == AudioSystem::DEVICE_OUT_WIDI) ||
+         (device == AudioSystem::DEVICE_OUT_REMOTE_SUBMIX))) {
+           ALOGD("[BGMUSIC] DO NOT APPLY VOLUME for BGM SINK - return max volume");
+           return 1.0;
+    }
+#endif //BGM_ENABLED
+
     volume = volIndexToAmpl(device, streamDesc, index);
 
+    // if a headset is connected and stream is ENFORCED_AUDIBLE (Camera shutter sound),
+    // then to avoid sound level burst in user's ears, attenuate the volume by 6dB.
+    if ((device &
+        (AudioSystem::DEVICE_OUT_WIRED_HEADSET |
+        AudioSystem::DEVICE_OUT_WIRED_HEADPHONE)) &&
+        (stream == AudioSystem::ENFORCED_AUDIBLE)) {
+        volume *= SONIFICATION_HEADSET_VOLUME_FACTOR;
+    }
     // if a headset is connected, apply the following rules to ring tones and notifications
     // to avoid sound level bursts in user's ears:
     // - always attenuate ring tones and notifications volume by 6dB
     // - if music is playing, always limit the volume to current music volume,
     // with a minimum threshold at -36dB so that notification is always perceived.
+#ifdef BGM_ENABLED
+    const routing_strategy stream_strategy = getStrategyforbackgroundsink((AudioSystem::stream_type)stream);
+#else
     const routing_strategy stream_strategy = getStrategy((AudioSystem::stream_type)stream);
-    if ((device & (AUDIO_DEVICE_OUT_BLUETOOTH_A2DP |
-            AUDIO_DEVICE_OUT_BLUETOOTH_A2DP_HEADPHONES |
-            AUDIO_DEVICE_OUT_WIRED_HEADSET |
-            AUDIO_DEVICE_OUT_WIRED_HEADPHONE)) &&
+#endif //BGM_ENABLED
+
+    if ((device & (AudioSystem::DEVICE_OUT_BLUETOOTH_A2DP |
+            AudioSystem::DEVICE_OUT_BLUETOOTH_A2DP_HEADPHONES |
+            AudioSystem::DEVICE_OUT_WIRED_HEADSET |
+            AudioSystem::DEVICE_OUT_WIRED_HEADPHONE)) &&
         ((stream_strategy == STRATEGY_SONIFICATION)
                 || (stream_strategy == STRATEGY_SONIFICATION_RESPECTFUL)
                 || (stream == AudioSystem::SYSTEM)
@@ -2977,10 +3626,7 @@ float AudioPolicyManagerBase::computeVolume(int stream,
         if (isStreamActive(AudioSystem::MUSIC, SONIFICATION_HEADSET_MUSIC_DELAY) ||
                 mLimitRingtoneVolume) {
             audio_devices_t musicDevice = getDeviceForStrategy(STRATEGY_MEDIA, true /*fromCache*/);
-            float musicVol = computeVolume(AudioSystem::MUSIC,
-                               mStreams[AudioSystem::MUSIC].getVolumeIndex(musicDevice),
-                               output,
-                               musicDevice);
+            float musicVol = getVolume(AudioSystem::MUSIC, musicDevice);
             float minVol = (musicVol > SONIFICATION_HEADSET_VOLUME_MIN) ?
                                 musicVol : SONIFICATION_HEADSET_VOLUME_MIN;
             if (volume > minVol) {
@@ -2991,6 +3637,12 @@ float AudioPolicyManagerBase::computeVolume(int stream,
     }
 
     return volume;
+}
+
+// Returns the stream volume
+float AudioPolicyManagerBase::getVolume(int stream, audio_devices_t device)
+{
+    return computeVolume(stream, mStreams[stream].getVolumeIndex(device), device);
 }
 
 status_t AudioPolicyManagerBase::checkAndSetVolume(int stream,
@@ -3016,20 +3668,29 @@ status_t AudioPolicyManagerBase::checkAndSetVolume(int stream,
         return INVALID_OPERATION;
     }
 
-    float volume = computeVolume(stream, index, output, device);
+    audio_devices_t checkedDevice = (device == AUDIO_DEVICE_NONE) ? mOutputs.valueFor(output)->device() : device;
+    float volume = computeVolume(stream, index, checkedDevice);
     // We actually change the volume if:
     // - the float value returned by computeVolume() changed
     // - the force flag is set
     if (volume != mOutputs.valueFor(output)->mCurVolume[stream] ||
             force) {
-        mOutputs.valueFor(output)->mCurVolume[stream] = volume;
-        ALOGVV("checkAndSetVolume() for output %d stream %d, volume %f, delay %d", output, stream, volume, delayMs);
-        // Force VOICE_CALL to track BLUETOOTH_SCO stream volume when bluetooth audio is
-        // enabled
-        if (stream == AudioSystem::BLUETOOTH_SCO) {
-            mpClientInterface->setStreamVolume(AudioSystem::VOICE_CALL, volume, output, delayMs);
+#ifdef BGM_ENABLED
+        if (mIsBGMEnabled) {
+            ALOGD("[BGMUSIC] DO NOT APPLY VOLUME for BGM SINK");
+        } else {
+#endif //BGM_ENABLED
+            mOutputs.valueFor(output)->mCurVolume[stream] = volume;
+            ALOGVV("checkAndSetVolume() for output %d stream %d, volume %f, delay %d", output, stream, volume, delayMs);
+            // Force VOICE_CALL to track BLUETOOTH_SCO stream volume when bluetooth audio is
+            // enabled
+            if (stream == AudioSystem::BLUETOOTH_SCO) {
+                mpClientInterface->setStreamVolume(AudioSystem::VOICE_CALL, volume, output, delayMs);
+            }
+            mpClientInterface->setStreamVolume((AudioSystem::stream_type)stream, volume, output, delayMs);
+#ifdef BGM_ENABLED
         }
-        mpClientInterface->setStreamVolume((AudioSystem::stream_type)stream, volume, output, delayMs);
+#endif //BGM_ENABLED
     }
 
     if (stream == AudioSystem::VOICE_CALL ||
@@ -3047,6 +3708,28 @@ status_t AudioPolicyManagerBase::checkAndSetVolume(int stream,
             mLastVoiceVolume = voiceVolume;
         }
     }
+
+#ifdef BGM_ENABLED
+    if (IsRemoteBGMSupported((AudioSystem::stream_type)stream)) {
+       // get the newly forced sink
+         audio_io_handle_t output2 = 0;
+         AudioOutputDescriptor *desc;
+         audio_devices_t device2 = getDeviceForStrategy(STRATEGY_BACKGROUND_MUSIC, false /*fromCache*/);
+         SortedVector<audio_io_handle_t> outputs = getOutputsForDevice(device2, mOutputs);
+         for(int i = 0; i < AudioSystem::NUM_STREAM_TYPES; i++) {
+             desc = mOutputs.valueAt(i);
+             if(desc->isActive())
+                break;
+         }
+         output2 = selectOutput(outputs, (AudioSystem::output_flags)desc->mFlags);
+         index = mStreams[stream].getVolumeIndex(AUDIO_DEVICE_OUT_REMOTE_BGM_SINK & device);
+         float volume = computeVolume(stream, index, device2);
+         ALOGD("[BGMUSIC] compute volume for the forced active sink = %f for device2 %x device = %x",volume, device2,device);
+         //applying the volume for the current active output for the device2.
+         mpClientInterface->setStreamVolume((AudioSystem::stream_type)stream, volume,
+                                                       output2, delayMs);
+    }
+#endif //BGM_ENABLED
 
     return NO_ERROR;
 }
@@ -3076,7 +3759,11 @@ void AudioPolicyManagerBase::setStrategyMute(routing_strategy strategy,
 {
     ALOGVV("setStrategyMute() strategy %d, mute %d, output %d", strategy, on, output);
     for (int stream = 0; stream < AudioSystem::NUM_STREAM_TYPES; stream++) {
+#ifdef BGM_ENABLED
+        if (getStrategyforbackgroundsink((AudioSystem::stream_type)stream) == strategy) {
+#else
         if (getStrategy((AudioSystem::stream_type)stream) == strategy) {
+#endif //BGM_ENABLED
             setStreamMute(stream, on, output, delayMs, device);
         }
     }
@@ -3130,9 +3817,12 @@ void AudioPolicyManagerBase::handleIncallSonification(int stream, bool starting,
     // interfere with the device used for phone strategy
     // if stateChange is true, we are called from setPhoneState() and we must mute or unmute as
     // many times as there are active tracks on the output
+#ifdef BGM_ENABLED
+    const routing_strategy stream_strategy = getStrategyforbackgroundsink((AudioSystem::stream_type)stream);
+#else
     const routing_strategy stream_strategy = getStrategy((AudioSystem::stream_type)stream);
-    if ((stream_strategy == STRATEGY_SONIFICATION) ||
-            ((stream_strategy == STRATEGY_SONIFICATION_RESPECTFUL))) {
+#endif //BGM_ENABLED
+    if (isStreamOfTypeSonification((AudioSystem::stream_type)stream)) {
         AudioOutputDescriptor *outputDesc = mOutputs.valueFor(mPrimaryOutput);
         ALOGV("handleIncallSonification() stream %d starting %d device %x stateChange %d",
                 stream, starting, outputDesc->mDevice, stateChange);
@@ -3165,7 +3855,21 @@ void AudioPolicyManagerBase::handleIncallSonification(int stream, bool starting,
     }
 }
 
-bool AudioPolicyManagerBase::isInCall()
+bool AudioPolicyManagerBase::isSonificationStrategy(routing_strategy strategy) {
+    return ((strategy == STRATEGY_SONIFICATION) ||
+            (strategy == STRATEGY_SONIFICATION_LOCAL) ||
+            (strategy == STRATEGY_SONIFICATION_RESPECTFUL));
+}
+
+bool AudioPolicyManagerBase::isStreamOfTypeSonification(AudioSystem::stream_type stream) {
+    routing_strategy strategy = getStrategy(stream);
+
+    return ((strategy == STRATEGY_SONIFICATION) ||
+            (strategy == STRATEGY_SONIFICATION_LOCAL) ||
+            (strategy == STRATEGY_SONIFICATION_RESPECTFUL));
+}
+
+bool AudioPolicyManagerBase::isInCall() const
 {
     return isStateInCall(mPhoneState);
 }
@@ -3185,6 +3889,56 @@ uint32_t AudioPolicyManagerBase::getMaxEffectsMemory()
     return MAX_EFFECTS_MEMORY;
 }
 
+#ifdef DOLBY_UDC
+// Sets the dolby system property dolby.audio.sink.info
+//
+// At present we are only setting system property for Headphone/Headset/HDMI/Speaker
+// and the same is supported in DDPDecoder.cpp EndpointConfig table.
+// if new device is available eg. bluetooth or usb_audio, then system property
+// must set in this function and also its downmix configuration should be set in
+// DDPDecoder.cpp EndpointConfig table.
+void AudioPolicyManagerBase::setDolbySystemProperty(audio_devices_t device)
+{
+    ALOGV("setDolbySystemProperty device 0x%x",device);
+    switch(device) {
+        case AUDIO_DEVICE_OUT_WIRED_HEADSET:
+        case AUDIO_DEVICE_OUT_WIRED_HEADPHONE:
+            ALOGV("DOLBY_ENDPOINT HEADPHONE");
+            property_set(DOLBY_SYSTEM_PROPERTY,"headset");
+            break;
+        case AUDIO_DEVICE_OUT_AUX_DIGITAL:
+            if(mCurrentHdmiDeviceCapability == HDMI_8)
+            {
+                property_set(DOLBY_SYSTEM_PROPERTY,"hdmi8");
+                ALOGV("DOLBY_ENDPOINT HDMI8");
+            }
+            else if (mCurrentHdmiDeviceCapability == HDMI_6)
+            {
+                property_set(DOLBY_SYSTEM_PROPERTY,"hdmi6");
+                ALOGV("DOLBY_ENDPOINT HDMI6");
+            }
+            else //mCurrentHdmiDeviceCapability == HDMI_2 or unknown
+            {
+                ALOGV("DOLBY_ENDPOINT HDMI2");
+                property_set(DOLBY_SYSTEM_PROPERTY,"hdmi2");
+            }
+            break;
+        case AUDIO_DEVICE_OUT_SPEAKER:
+            ALOGV("DOLBY_ENDPOINT SPEAKER");
+            property_set(DOLBY_SYSTEM_PROPERTY,"speaker");
+            break;
+        case AUDIO_DEVICE_OUT_DEFAULT:
+            // If the strategy for handling the current value of
+            // mAvailableOutputDevices is not implemented
+            // AUDIO_DEVICE_OUT_DEFAULT is set.
+            // fall-through
+        default:
+            ALOGV("DOLBY_ENDPOINT INVALID");
+            property_set(DOLBY_SYSTEM_PROPERTY,"invalid");
+            break;
+    }
+}
+#endif //DOLBY_UDC
 // --- AudioOutputDescriptor class implementation
 
 AudioPolicyManagerBase::AudioOutputDescriptor::AudioOutputDescriptor(
@@ -3192,7 +3946,8 @@ AudioPolicyManagerBase::AudioOutputDescriptor::AudioOutputDescriptor(
     : mId(0), mSamplingRate(0), mFormat((audio_format_t)0),
       mChannelMask((audio_channel_mask_t)0), mLatency(0),
     mFlags((audio_output_flags_t)0), mDevice(AUDIO_DEVICE_NONE),
-    mOutput1(0), mOutput2(0), mProfile(profile), mDirectOpenCount(0)
+    mOutput1(0), mOutput2(0), mProfile(profile), mDirectOpenCount(0),
+    mForceRouting(false)
 {
     // clear usage count for all stream types
     for (int i = 0; i < AudioSystem::NUM_STREAM_TYPES; i++) {
@@ -3343,7 +4098,7 @@ status_t AudioPolicyManagerBase::AudioOutputDescriptor::dump(int fd)
 AudioPolicyManagerBase::AudioInputDescriptor::AudioInputDescriptor(const IOProfile *profile)
     : mSamplingRate(0), mFormat((audio_format_t)0), mChannelMask((audio_channel_mask_t)0),
       mDevice(AUDIO_DEVICE_NONE), mRefCount(0),
-      mInputSource(0), mProfile(profile)
+      mInputSource(0), mProfile(profile), mHasStarted(0)
 {
 }
 
@@ -3376,7 +4131,7 @@ AudioPolicyManagerBase::StreamDescriptor::StreamDescriptor()
     mIndexCur.add(AUDIO_DEVICE_OUT_DEFAULT, 0);
 }
 
-int AudioPolicyManagerBase::StreamDescriptor::getVolumeIndex(audio_devices_t device)
+int AudioPolicyManagerBase::StreamDescriptor::getVolumeIndex(audio_devices_t device) const
 {
     device = AudioPolicyManagerBase::getDeviceForVolume(device);
     // there is always a valid entry for AUDIO_DEVICE_OUT_DEFAULT
@@ -3595,6 +4350,7 @@ const struct StringToEnum sDeviceNameToEnumTable[] = {
     STRING_TO_ENUM(AUDIO_DEVICE_OUT_ANLG_DOCK_HEADSET),
     STRING_TO_ENUM(AUDIO_DEVICE_OUT_USB_DEVICE),
     STRING_TO_ENUM(AUDIO_DEVICE_OUT_USB_ACCESSORY),
+    STRING_TO_ENUM(AUDIO_DEVICE_OUT_WIDI),
     STRING_TO_ENUM(AUDIO_DEVICE_OUT_ALL_USB),
     STRING_TO_ENUM(AUDIO_DEVICE_OUT_REMOTE_SUBMIX),
     STRING_TO_ENUM(AUDIO_DEVICE_IN_BUILTIN_MIC),
@@ -3651,6 +4407,11 @@ uint32_t AudioPolicyManagerBase::stringToEnum(const struct StringToEnum *table,
         }
     }
     return 0;
+}
+
+bool AudioPolicyManagerBase::stringToBool(const char *value)
+{
+    return ((strcasecmp("true", value) == 0) || (strcmp("1", value) == 0));
 }
 
 audio_output_flags_t AudioPolicyManagerBase::parseFlagNames(char *name)
@@ -3790,9 +4551,9 @@ void AudioPolicyManagerBase::loadOutChannels(char *name, IOProfile *profile)
     return;
 }
 
-status_t AudioPolicyManagerBase::loadInput(cnode *root, HwModule *module)
+status_t AudioPolicyManagerBase::loadInput(const cnode *root, HwModule *module)
 {
-    cnode *node = root->first_child;
+    const cnode *node = root->first_child;
 
     IOProfile *profile = new IOProfile(module);
 
@@ -3831,7 +4592,7 @@ status_t AudioPolicyManagerBase::loadInput(cnode *root, HwModule *module)
     }
 }
 
-status_t AudioPolicyManagerBase::loadOutput(cnode *root, HwModule *module)
+status_t AudioPolicyManagerBase::loadOutput(const cnode *root, HwModule *module)
 {
     cnode *node = root->first_child;
 
@@ -3935,6 +4696,20 @@ void AudioPolicyManagerBase::loadHwModules(cnode *root)
     }
 }
 
+void AudioPolicyManagerBase::loadCustomProperties(const cnode *root)
+{
+    const cnode *node = root->first_child;
+
+    while (node) {
+        String8 aKey(node->name);
+        String8 aValue(node->value);
+        // Add the property in the custom properties map
+        mCustomPropertiesMap.add(aKey, aValue);
+
+        node = node->next;
+    }
+}
+
 void AudioPolicyManagerBase::loadGlobalConfig(cnode *root)
 {
     cnode *node = config_find(root, GLOBAL_CONFIG_TAG);
@@ -3958,6 +4733,12 @@ void AudioPolicyManagerBase::loadGlobalConfig(cnode *root)
         } else if (strcmp(ATTACHED_INPUT_DEVICES_TAG, node->name) == 0) {
             mAvailableInputDevices = parseDeviceNames((char *)node->value) & ~AUDIO_DEVICE_BIT_IN;
             ALOGV("loadGlobalConfig() mAvailableInputDevices %04x", mAvailableInputDevices);
+        } else if (strcmp(SPEAKER_DRC_ENABLED_TAG, node->name) == 0) {
+            mSpeakerDrcEnabled = stringToBool((char *)node->value);
+            ALOGV("loadGlobalConfig() mSpeakerDrcEnabled = %d", mSpeakerDrcEnabled);
+        } else if (strcmp(GLOBAL_CUSTOM_PROPERTIES, node->name) == 0) {
+            // Load custom properties section
+            loadCustomProperties(node);
         }
         node = node->next;
     }
@@ -4014,6 +4795,93 @@ void AudioPolicyManagerBase::defaultAudioPolicyConfig(void)
     module->mInputProfiles.add(profile);
 
     mHwModules.add(module);
+}
+
+bool AudioPolicyManagerBase::getCustomPropertyAsString(const String8 &name, String8 &value) const
+{
+    if (mCustomPropertiesMap.indexOfKey(name) == NAME_NOT_FOUND) {
+        return false;
+    }
+    // Retrieve the value associated to the key
+    value = mCustomPropertiesMap.valueFor(name);
+    return true;
+}
+
+bool AudioPolicyManagerBase::getCustomPropertyAsLong(const String8 &name, long &value) const
+{
+    String8 strValue;
+
+    if (!getCustomPropertyAsString(name, strValue)) {
+        return false;
+    }
+
+    const char *valueAsChars = strValue.string();
+    char *endp;
+    long tmpValue = strtol(valueAsChars, &endp, 10);
+    if (*endp != '\0') {
+        ALOGW("Bad long value for custom property '%s': %s",name.string(),valueAsChars);
+        return false;
+    }
+
+    value = tmpValue;
+    return true;
+}
+
+bool AudioPolicyManagerBase::getCustomPropertyAsULong(const String8 &name, unsigned long &value) const
+{
+    String8 strValue;
+
+    if (!getCustomPropertyAsString(name, strValue)) {
+        return false;
+    }
+
+    const char *valueAsChars = strValue.string();
+    char *endp;
+    unsigned long tmpValue = strtoul(valueAsChars, &endp, 10);
+    if (*endp != '\0') {
+        ALOGW("Bad unsigned long value for custom property '%s': %s",name.string(),valueAsChars);
+        return false;
+    }
+
+    value = tmpValue;
+    return true;
+}
+
+bool AudioPolicyManagerBase::getCustomPropertyAsFloat(const String8 &name, float &value) const
+{
+    String8 strValue;
+
+    if (!getCustomPropertyAsString(name, strValue)) {
+        return false;
+    }
+
+    const char *valueAsChars = strValue.string();
+    char *endp;
+    float tmpValue = strtof(valueAsChars, &endp);
+    if (*endp != '\0') {
+        ALOGW("Bad float value for custom property '%s': %s",name.string(),valueAsChars);
+        return false;
+    }
+
+    value = tmpValue;
+    return true;
+}
+
+bool AudioPolicyManagerBase::getCustomPropertyAsBool(const String8 &name, bool &value) const
+{
+    String8 strValue;
+
+    if (!getCustomPropertyAsString(name, strValue)) {
+        return false;
+    }
+
+    if ((strValue != "true") && (strValue != "false")) {
+        ALOGW("Bad boolean value for custom property '%s': %s",name.string(),strValue.string());
+        return false;
+    }
+
+    value = (strValue == "true");
+    return true;
 }
 
 }; // namespace android
