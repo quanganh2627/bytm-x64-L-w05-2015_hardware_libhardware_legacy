@@ -1745,6 +1745,13 @@ bool AudioPolicyManagerBase::isOffloadSupported(const audio_offload_info_t& offl
         offloadCapabilities = strtoul(propValue2, NULL, 16);
     }
 
+    // if submix is device is enabled - disable offload
+    if((mAvailableOutputDevices & AudioSystem::DEVICE_OUT_WIDI) ||
+         (mAvailableOutputDevices & AudioSystem::DEVICE_OUT_REMOTE_SUBMIX)) {
+        ALOGV("isOffloadSupported: submix attached - offloading disabled");
+        return false;
+    }
+
     // Check if audio offload is enabled for playback of AV files
     if (offloadInfo.has_video && (!(offloadCapabilities & VIDEO_OFFLOAD))) {
         ALOGV("isOffloadSupported: audio.offload.capabilities property set to"
