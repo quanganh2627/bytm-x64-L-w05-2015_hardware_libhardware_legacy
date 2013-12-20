@@ -3109,8 +3109,12 @@ uint32_t AudioPolicyManagerBase::checkDeviceMuteStrategies(AudioOutputDescriptor
                       mute ? "muting" : "unmuting", i, curDevice, curOutput);
                 setStrategyMute((routing_strategy)i, mute, curOutput, mute ? 0 : delayMs);
                 if (desc->isStrategyActive((routing_strategy)i)) {
-                    // do tempMute only for current output
-                    if (tempMute && (desc == outputDesc)) {
+                  // do tempMute  for current output and the deep buffer output
+                  //at the time of device change to match the deep buffer latency.
+                    if (tempMute && ((desc == outputDesc)||
+                        ((outputDesc->sharesHwModuleWith(desc))&&
+                         (desc->mFlags & AUDIO_OUTPUT_FLAG_DEEP_BUFFER)))) {
+
                         setStrategyMute((routing_strategy)i, true, curOutput);
                         setStrategyMute((routing_strategy)i, false, curOutput,
                                             desc->latency() * 2, device);
