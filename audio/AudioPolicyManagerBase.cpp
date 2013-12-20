@@ -279,13 +279,10 @@ status_t AudioPolicyManagerBase::setDeviceConnectionState(audio_devices_t device
             // do not force device change on duplicated output because if device is 0, it will
             // also force a device 0 for the two outputs it is duplicated to which may override
             // a valid device selection on those outputs.
-            if(mOutputs.valueAt(i)->isActive()) {
-                setOutputDevice(mOutputs.keyAt(i),
-                                getNewDevice(mOutputs.keyAt(i),
-                                true /*fromCache*/),
-                                !mOutputs.valueAt(i)->isDuplicated(),
-                                0);
-            }
+            setOutputDevice(mOutputs.keyAt(i),
+                            getNewDevice(mOutputs.keyAt(i), true /*fromCache*/),
+                            !mOutputs.valueAt(i)->isDuplicated(),
+                            0);
         }
 #ifdef DOLBY_UDC
         audio_devices_t audioOutputDevice = getDeviceForStrategy(getStrategy(AudioSystem::MUSIC), false);
@@ -1728,19 +1725,44 @@ status_t AudioPolicyManagerBase::dump(int fd)
 bool AudioPolicyManagerBase::isOffloadSupported(const audio_offload_info_t& offloadInfo)
 {
     ALOGV("isOffloadSupported: SR=%u, CM=0x%x, Format=0x%x, StreamType=%d,"
-     " BitRate=%u, duration=%lld us, has_video=%d",
+     " BitRate=%u, duration=%lld us, has_video=%d is_streaming = %d",
      offloadInfo.sample_rate, offloadInfo.channel_mask,
      offloadInfo.format,
      offloadInfo.stream_type, offloadInfo.bit_rate, offloadInfo.duration_us,
-     offloadInfo.has_video);
+     offloadInfo.has_video, offloadInfo.is_streaming);
 
     // Check if offload has been disabled
     char propValue[PROPERTY_VALUE_MAX];
+    char propValue2[PROPERTY_VALUE_MAX];
+    uint32_t offloadCapabilities = 0;
     if (property_get("audio.offload.disable", propValue, "0")) {
         if (atoi(propValue) != 0) {
             ALOGV("offload disabled by audio.offload.disable=%s", propValue );
             return false;
         }
+    }
+    if (property_get("audio.offload.capabilities", propValue2, "0")) {
+        offloadCapabilities = strtoul(propValue2, NULL, 16);
+    }
+
+    // Check if audio offload is enabled for playback of AV files
+    if (offloadInfo.has_video && (!(offloadCapabilities & VIDEO_OFFLOAD))) {
+        ALOGV("isOffloadSupported: audio.offload.capabilities property set to"
+              " false for AV files");
+        return false;
+    }
+
+    if ((offloadInfo.channel_mask == 0) ||
+            (offloadInfo.channel_mask > AUDIO_CHANNEL_OUT_7POINT1)) {
+        ALOGV("isOffloadSupported: Unsupported channels for offload");
+        return false;
+    }
+
+    if ((offloadInfo.channel_mask > AUDIO_CHANNEL_OUT_STEREO) &&
+            !(offloadCapabilities & MC_OFFLOAD)) {
+        ALOGV("isOffloadSupported: audio.offload.capabilities property set to "
+              "false for multichannel files");
+        return false;
     }
 
     // Check if stream type is music, then only allow offload as of now.
@@ -1749,14 +1771,10 @@ bool AudioPolicyManagerBase::isOffloadSupported(const audio_offload_info_t& offl
         ALOGV("isOffloadSupported: stream_type != MUSIC, returning false");
         return false;
     }
-
-    //TODO: enable audio offloading with video when ready
-    if (offloadInfo.has_video)
-    {
-        ALOGV("isOffloadSupported: has_video == true, returning false");
+    if (offloadInfo.is_streaming) {
+        ALOGV("isOffloadSupported: is_streaming == true, returning false");
         return false;
     }
-
     //If duration is less than minimum value defined in property, return false
     if (property_get("audio.offload.min.duration.secs", propValue, NULL)) {
         if (offloadInfo.duration_us < (atoi(propValue) * 1000000 )) {
@@ -3188,13 +3206,12 @@ uint32_t AudioPolicyManagerBase::setOutputDevice(audio_io_handle_t output,
     // do the routing
     param.addInt(String8(AudioParameter::keyRouting), (int)device);
     param.addInt(String8(AudioParameter::keyStreamFlags), (int)outputDesc->mFlags);
-    //delay the device switch by four times  the latency because for deep
-    //buffer playback buffer size is 192ms so that it still contain data
-    //that needs to be drained. So if the deep buffer stream is active
-    // apply a latency.
-    if(outputDesc->mFlags & AUDIO_OUTPUT_FLAG_DEEP_BUFFER) {
-        mpClientInterface->setParameters(output, param.toString(),
-                                          outputDesc->latency() * 2 * 2);
+
+    // For offload use case routing has to be done via primary hal
+    // send the info to primary hal for routing
+    if (outputDesc->mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) {
+        mpClientInterface->setParameters(mPrimaryOutput, param.toString(),
+                                          delayMs);
     } else {
         mpClientInterface->setParameters(output, param.toString(), delayMs);
     }
