@@ -3758,11 +3758,13 @@ status_t AudioPolicyManagerBase::checkAndSetVolume(int stream,
          //BGM is applicable only for music streams - there is a possibility of
          // an inactive output based on a different strategy returned here. There
          // is no need of applying volume for this output
-         if(!desc->isActive()) {
-            ALOGVV("[BGMUSIC] No active outputs available for BGM - no volume applied");
-            return NO_ERROR;
+         if(desc != NULL) {
+             if(!desc->isActive()) {
+                ALOGVV("[BGMUSIC] No active outputs available for BGM - no volume applied");
+                return NO_ERROR;
+             }
+             output2 = selectOutput(outputs, (AudioSystem::output_flags)desc->mFlags);
          }
-         output2 = selectOutput(outputs, (AudioSystem::output_flags)desc->mFlags);
          index = mStreams[stream].getVolumeIndex(AUDIO_DEVICE_OUT_REMOTE_BGM_SINK & device);
          float volume = computeVolume(stream, index, device2);
          ALOGD("[BGMUSIC] compute volume for the forced active sink = %f for device2 %x device = %x",volume, device2,device);
