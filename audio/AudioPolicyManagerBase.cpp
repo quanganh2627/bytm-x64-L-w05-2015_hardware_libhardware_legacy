@@ -2972,13 +2972,17 @@ audio_devices_t AudioPolicyManagerBase::getDeviceForStrategy(routing_strategy st
         //If BGM devices are present, always force the output to it
         // - other attached sinks will be handled in STRATEGY_BACKGROUND_MUSIC
         if (mIsBGMEnabled) {
-           if (device2 == AUDIO_DEVICE_NONE)
-               device2 = mAvailableOutputDevices &  AudioSystem::DEVICE_OUT_AUX_DIGITAL;
-           if ((device2 == AUDIO_DEVICE_NONE) && (strategy != STRATEGY_SONIFICATION_LOCAL))
-               device2 = mAvailableOutputDevices & AudioSystem::DEVICE_OUT_REMOTE_SUBMIX;
-           if ((device2 == AUDIO_DEVICE_NONE) && (strategy != STRATEGY_SONIFICATION_LOCAL))
-               device2 = mAvailableOutputDevices & AudioSystem::DEVICE_OUT_WIDI;
-           ALOGV("[BGMUSIC] STRATEGY_MEDIA - force aux/widi always device = %x",device2);
+            if (device2 == AUDIO_DEVICE_NONE)
+                device2 = mAvailableOutputDevices &  AudioSystem::DEVICE_OUT_AUX_DIGITAL;
+            if ((device2 == AUDIO_DEVICE_NONE) &&
+                    (strategy != STRATEGY_SONIFICATION_LOCAL) &&
+                    (strategy != STRATEGY_SONIFICATION))
+                device2 = mAvailableOutputDevices & AudioSystem::DEVICE_OUT_REMOTE_SUBMIX;
+            if ((device2 == AUDIO_DEVICE_NONE) &&
+                    (strategy != STRATEGY_SONIFICATION_LOCAL) &&
+                    (strategy != STRATEGY_SONIFICATION))
+                device2 = mAvailableOutputDevices & AudioSystem::DEVICE_OUT_WIDI;
+          ALOGV("[BGMUSIC] STRATEGY_MEDIA - force aux/widi always device = %x",device2);
         }
 #endif//BGM_ENABLED
 
