@@ -3408,6 +3408,7 @@ AudioPolicyManagerBase::device_category AudioPolicyManagerBase::getDeviceCategor
         case AUDIO_DEVICE_OUT_BLUETOOTH_SCO_HEADSET:
         case AUDIO_DEVICE_OUT_BLUETOOTH_A2DP:
         case AUDIO_DEVICE_OUT_BLUETOOTH_A2DP_HEADPHONES:
+        case AUDIO_DEVICE_OUT_DGTL_DOCK_HEADSET:
             return DEVICE_CATEGORY_HEADSET;
         case AUDIO_DEVICE_OUT_SPEAKER:
         case AUDIO_DEVICE_OUT_BLUETOOTH_SCO_CARKIT:
@@ -3630,7 +3631,6 @@ float AudioPolicyManagerBase::computeVolume(int stream,
     if (stream == AudioSystem::MUSIC &&
         index != mStreams[stream].mIndexMin &&
         (device == AUDIO_DEVICE_OUT_AUX_DIGITAL ||
-         device == AUDIO_DEVICE_OUT_DGTL_DOCK_HEADSET ||
          device == AUDIO_DEVICE_OUT_USB_ACCESSORY ||
          device == AUDIO_DEVICE_OUT_USB_DEVICE)) {
         return 1.0;
