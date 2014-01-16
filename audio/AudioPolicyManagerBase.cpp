@@ -1086,7 +1086,8 @@ status_t AudioPolicyManagerBase::stopOutput(audio_io_handle_t output,
                 AudioOutputDescriptor *desc = mOutputs.valueAt(i);
                 if (curOutput != output &&
                         desc->isActive() &&
-                        outputDesc->sharesHwModuleWith(desc) &&
+                        ((desc->mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) ||
+                        outputDesc->sharesHwModuleWith(desc)) &&
                         (newDevice != desc->device())) {
                     setOutputDevice(curOutput,
                                     getNewDevice(curOutput, false /*fromCache*/),
