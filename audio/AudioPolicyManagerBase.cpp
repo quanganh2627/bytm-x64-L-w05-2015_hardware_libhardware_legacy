@@ -1063,7 +1063,7 @@ status_t AudioPolicyManagerBase::stopOutput(audio_io_handle_t output,
             // Informs primary HAL that a compressed output stops
             AudioParameter param;
             param.addInt(String8(AudioParameter::keyStreamFlags), AUDIO_OUTPUT_FLAG_NONE);
-            mpClientInterface->setParameters(0, param.toString(), 0);
+            mpClientInterface->setParameters(output, param.toString(), 0);
         }
 
         // decrement usage count of this stream on the output
