@@ -3510,8 +3510,8 @@ uint32_t AudioPolicyManagerBase::setOutputDevice(audio_io_handle_t output,
         mpClientInterface->setParameters(output, param.toString(), delayMs);
     }
 
-    // update stream volumes according to new device
-    applyStreamVolumes(output, device, delayMs);
+    // update stream volumes according to new device, force reevaluation if FM is in use
+    applyStreamVolumes(output, device, delayMs, mFmIsOn);
 
     return muteWaitMs;
 }
@@ -3993,6 +3993,11 @@ status_t AudioPolicyManagerBase::checkAndSetVolume(int stream,
 #endif //BGM_ENABLED
             mOutputs.valueFor(output)->mCurVolume[stream] = volume;
             ALOGVV("checkAndSetVolume() for output %d stream %d, volume %f, delay %d", output, stream, volume, delayMs);
+            if (mFmIsOn && (stream == AudioSystem::MUSIC)) {
+                AudioParameter param;
+                param.addFloat(String8("fm-volume"),volume);
+                mpClientInterface->setParameters(0, param.toString());
+            }
             // Force VOICE_CALL to track BLUETOOTH_SCO stream volume when bluetooth audio is
             // enabled
             if (stream == AudioSystem::BLUETOOTH_SCO) {
