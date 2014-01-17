@@ -1,5 +1,8 @@
 # Copyright 2006 The Android Open Source Project
 
+LOCAL_CFLAGS += -DCONFIG_CTRL_IFACE_CLIENT_DIR=\"/data/misc/wifi/sockets\"
+LOCAL_CFLAGS += -DCONFIG_CTRL_IFACE_CLIENT_PREFIX=\"wpa_ctrl_\"
+
 ifeq ($(TARGET_BOARD_PLATFORM),bigcore)
 	ADDITIONAL_DEFAULT_PROPERTIES += wifi.interface=wlan0
 	ADDITIONAL_DEFAULT_PROPERTIES += wlan.driver.vendor=bc

@@ -19,7 +19,9 @@
 #include "supplicant.h"
 
 static struct wpa_ctrl *ctrl_conn;
+static struct wpa_ctrl *ctrl_conn_hostapd;
 static struct wpa_ctrl *monitor_conn;
+static struct wpa_ctrl *monitor_conn_hostapd;
 
 /* socket pair used to exit from a blocking read */
 static int exit_sockets[2];
@@ -430,6 +432,130 @@ int wifi_connect_to_supplicant()
     return wifi_connect_on_socket_path(path);
 }
 
+
+int wifi_connect_to_hostapd()
+{
+    char ifname[256];
+
+    /* For connection with the ctrl_interface of hostap daemon,
+       the fixed value of socket name needs to be defined. And We will
+       use "wpa_wlan1" as socket name for hostap daemon while
+       supplicant uses "wpa_wlan0" for this  */
+    strcpy(ifname, "wlan1");
+
+    ctrl_conn_hostapd = wpa_ctrl_open(ifname);
+    if (ctrl_conn_hostapd == NULL) {
+        ALOGE("Unable to open connection to hostapd on \"%s\": %s",
+             ifname, strerror(errno));
+        return -1;
+    }
+    monitor_conn_hostapd = wpa_ctrl_open(ifname);
+    if (monitor_conn_hostapd == NULL) {
+        ALOGE("Unable to open connection to monitor_conn of hostapd on %s", ifname);
+        wpa_ctrl_close(ctrl_conn_hostapd);
+        ctrl_conn_hostapd = NULL;
+        return -1;
+    }
+    if (wpa_ctrl_attach(monitor_conn_hostapd) != 0) {
+        ALOGE("Unable to attatch  connection to monitor_conn of hostapd on %s",ifname);
+        wpa_ctrl_close(monitor_conn_hostapd);
+        wpa_ctrl_close(ctrl_conn_hostapd);
+        ctrl_conn_hostapd = monitor_conn_hostapd = NULL;
+        return -1;
+    }
+
+    if (socketpair(AF_UNIX, SOCK_STREAM, 0, exit_sockets) == -1) {
+        ALOGE("Unable to socketpair to hostapd on %s", ifname);
+        wpa_ctrl_close(monitor_conn_hostapd);
+        wpa_ctrl_close(ctrl_conn_hostapd);
+        ctrl_conn_hostapd = monitor_conn_hostapd = NULL;
+        return -1;
+    }
+
+    return 0;
+}
+
+
+void wifi_close_hostapd_connection()
+{
+
+    if (ctrl_conn_hostapd != NULL) {
+        wpa_ctrl_close(ctrl_conn_hostapd);
+        ctrl_conn_hostapd = NULL;
+    }
+
+    if (monitor_conn_hostapd != NULL) {
+        wpa_ctrl_close(monitor_conn_hostapd);
+        monitor_conn_hostapd = NULL;
+    }
+
+    if (exit_sockets[0] >= 0) {
+        close(exit_sockets[0]);
+        exit_sockets[0] = -1;
+    }
+
+    if (exit_sockets[1] >= 0) {
+        close(exit_sockets[1]);
+        exit_sockets[1] = -1;
+    }
+}
+
+
+int wifi_get_AP_channel_list(char *addr, size_t *addr_len)
+{
+    char  *pos, reply[1024];
+    size_t reply_len;
+    int ret;
+    char *cmd = "AP-CHAN-LIST";
+    int rs = 0;
+
+    if (!addr_len) {
+        ALOGE("addr_len is null\n");
+        return -1;
+    }
+
+    if (ctrl_conn_hostapd == NULL) {
+        ALOGV("Not connected to hostapd, trying to connect\n");
+
+        if (wifi_connect_to_hostapd() == -1) {
+          ALOGV("Not connected to hostapd - \"%s\" command dropped.\n", cmd);
+          return -1;
+        }
+    }
+
+    reply_len = sizeof(reply) - 1;
+    log_cmd(cmd);
+
+    ret = wpa_ctrl_request(ctrl_conn_hostapd, cmd, strlen(cmd), reply, &reply_len, NULL);
+    if (ret == -2) {
+        ALOGD("'%s' command timed out.\n", cmd);
+        /* unblocks the monitor receive socket for termination */
+        TEMP_FAILURE_RETRY(write(exit_sockets[0], "T", 1));
+        rs = -2;
+        goto close_sock;
+    } else if (ret < 0 || strncmp(reply, "FAIL", 4) == 0) {
+        LOGI("REPLY: FAIL\n");
+        rs = -1;
+        goto close_sock;
+    }
+
+    log_reply(reply, &reply_len);
+
+    reply[reply_len] = '\0';
+    ALOGE("%s", reply);
+
+    pos = reply;
+    while (*pos != '\0' && *pos != '\n')
+        pos++;
+    *pos = '\0';
+    strlcpy(addr, reply, *addr_len);
+
+ close_sock:
+    wifi_close_hostapd_connection();
+
+    return rs;
+}
+
 int wifi_send_command(const char *cmd, char *reply, size_t *reply_len)
 {
     int ret;
@@ -592,7 +718,7 @@ void wifi_close_supplicant_connection()
             if (strcmp(supp_status, "stopped") == 0) {
                 pthread_mutex_unlock(&suppl_mutex);
                 return;
-	    }
+            }
         }
         usleep(100000);
     }
