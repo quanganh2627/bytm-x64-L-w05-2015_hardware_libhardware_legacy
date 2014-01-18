@@ -834,6 +834,14 @@ audio_io_handle_t AudioPolicyManagerBase::getOutput(AudioSystem::stream_type str
         }
         mPreviousOutputs = mOutputs;
         ALOGV("getOutput() returns new direct output %d", output);
+
+        if (outputDesc->mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) {
+            // Informs primary HAL that a compressed output will be started
+            ALOGV("getOutput setParam");
+            AudioParameter param;
+            param.addInt(String8(AudioParameter::keyStreamFlags), AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD);
+            mpClientInterface->setParameters(0, param.toString(), 0);
+        }
         return output;
     }
 
@@ -948,14 +956,6 @@ status_t AudioPolicyManagerBase::startOutput(audio_io_handle_t output,
 
     AudioOutputDescriptor *outputDesc = mOutputs.valueAt(index);
 
-    if (outputDesc->mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) {
-    // Informs primary HAL that a compressed output will be started
-        AudioParameter param;
-        param.addInt(String8(AudioParameter::keyStreamFlags), AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD);
-        mpClientInterface->setParameters(0, param.toString(), 0);
-    // Stores the current audio sessionId for use in gapless offlaoded playback.
-    // mMusicOffloadSessionId = session;
-    }
     //increment usage count for this stream on the requested output:
     // NOTE that the usage count is the same for duplicated output and hardware output which is
     // necessary for a correct control of hardware output routing by startOutput() and stopOutput()
@@ -1062,13 +1062,6 @@ status_t AudioPolicyManagerBase::stopOutput(audio_io_handle_t output,
     }
 
     if (outputDesc->mRefCount[stream] > 0) {
-        if (outputDesc->mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) {
-            // Informs primary HAL that a compressed output stops
-            AudioParameter param;
-            param.addInt(String8(AudioParameter::keyStreamFlags), AUDIO_OUTPUT_FLAG_NONE);
-            mpClientInterface->setParameters(output, param.toString(), 0);
-        }
-
         // decrement usage count of this stream on the output
         outputDesc->changeRefCount(stream, -1);
         // store time at which the stream was stopped - see isStreamActive()
