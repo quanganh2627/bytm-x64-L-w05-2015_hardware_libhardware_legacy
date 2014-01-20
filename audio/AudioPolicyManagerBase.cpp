@@ -81,35 +81,43 @@ bool AudioPolicyManagerBase :: mIsDirectOutputActive;
 #ifdef BGM_ENABLED
 bool AudioPolicyManagerBase::IsRemoteBGMSupported(AudioSystem::stream_type stream) {
 
-    String8 reply;
-    String8 reply2;
-    char* isBGMEnabledValue;
-
     //check whether BGM state is set only if the BGM device is available
+    //enable BGM when these conditions are satisfied
+    // 1. Enable BGM parameter is set from the unique application
+    // 2. The current active stream is music
     if ((mAvailableOutputDevices & AUDIO_DEVICE_OUT_REMOTE_BGM_SINK) &&
              (stream == AudioSystem::MUSIC)) {
-       reply = mpClientInterface->getParameters(0, String8(AUDIO_PARAMETER_KEY_REMOTE_BGM_STATE));
-       ALOGVV("%s isBGMEnabledValue = %s",__func__,reply.string());
-       isBGMEnabledValue = strpbrk((char *)reply.string(), "=");
-       ++isBGMEnabledValue;
-       mIsBGMEnabled = strcmp(isBGMEnabledValue,"true") ? false : true;
+        String8 reply = mpClientInterface->getParameters(0,
+            String8(AUDIO_PARAMETER_KEY_REMOTE_BGM_STATE));
+        AudioParameter param = AudioParameter(reply);
+        String8 value;
 
-       char* isBGMAudioActive;
-       bool IsBGMAudioavailable;
-       char* isBGMAudioValue;
-       reply2 = mpClientInterface->getParameters(0, String8(AUDIO_PARAMETER_VALUE_REMOTE_BGM_AUDIO));
-       ALOGVV("%s isBGMAudioActive = %s",__func__,reply2.string());
-       isBGMAudioValue = strpbrk((char *)reply2.string(), "=");
-       ++isBGMAudioValue;
-       IsBGMAudioavailable = strcmp(isBGMAudioValue,"true") ? false : true;
-       ALOGV("%s IsBGMAudioavailable = %d",__func__,IsBGMAudioavailable);
+        if (param.get(String8(AUDIO_PARAMETER_KEY_REMOTE_BGM_STATE), value) == NO_ERROR) {
+            mIsBGMEnabled  = (value == "true");
+        }
+        else {
+            ALOGI("mIsBGMEnabled: could not get key %s",AUDIO_PARAMETER_KEY_REMOTE_BGM_STATE);
+            mIsBGMEnabled  = false;
+        }
 
-       //enable BGM when these conditions are satisfied
-       // 1. Enable BGM parameter is set from the unique application
-       // 2. The current active stream is music
-       if (mIsBGMEnabled) {
-           return true;
-       }
+        bool IsBGMAudioavailable;
+        String8 reply2 = mpClientInterface->getParameters(0,
+            String8(AUDIO_PARAMETER_VALUE_REMOTE_BGM_AUDIO));
+        AudioParameter param2 = AudioParameter(reply2);
+
+        if (param2.get(String8(AUDIO_PARAMETER_VALUE_REMOTE_BGM_AUDIO), value) == NO_ERROR) {
+            IsBGMAudioavailable  = (value == "true");
+        }
+        else {
+            ALOGI("IsBGMAudioavailable: could not get key %s",
+                AUDIO_PARAMETER_VALUE_REMOTE_BGM_AUDIO);
+            IsBGMAudioavailable  = false;
+        }
+
+        ALOGV("%s IsBGMAudioavailable = %d, mIsBGMEnabled= %d",__func__,
+            IsBGMAudioavailable, mIsBGMEnabled);
+
+        return mIsBGMEnabled;
     }
 
     return false;
