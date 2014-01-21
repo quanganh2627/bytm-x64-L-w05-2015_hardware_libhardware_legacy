@@ -2664,10 +2664,10 @@ audio_devices_t AudioPolicyManagerBase::getDeviceForStrategy(routing_strategy st
             if (device) break;
             device = mAvailableOutputDevices & AUDIO_DEVICE_OUT_WIRED_HEADSET;
             if (device) break;
+            device = mAvailableOutputDevices & AUDIO_DEVICE_OUT_USB_DEVICE;
+            if (device) break;
             if (mPhoneState != AudioSystem::MODE_IN_CALL) {
                 device = mAvailableOutputDevices & AUDIO_DEVICE_OUT_USB_ACCESSORY;
-                if (device) break;
-                device = mAvailableOutputDevices & AUDIO_DEVICE_OUT_USB_DEVICE;
                 if (device) break;
                 device = mAvailableOutputDevices & AUDIO_DEVICE_OUT_DGTL_DOCK_HEADSET;
                 if (device) break;
@@ -2699,8 +2699,6 @@ audio_devices_t AudioPolicyManagerBase::getDeviceForStrategy(routing_strategy st
             }
             if (mPhoneState != AudioSystem::MODE_IN_CALL) {
                 device = mAvailableOutputDevices & AUDIO_DEVICE_OUT_USB_ACCESSORY;
-                if (device) break;
-                device = mAvailableOutputDevices & AUDIO_DEVICE_OUT_USB_DEVICE;
                 if (device) break;
                 device = mAvailableOutputDevices & AUDIO_DEVICE_OUT_DGTL_DOCK_HEADSET;
                 if (device) break;
@@ -3441,8 +3439,7 @@ float AudioPolicyManagerBase::computeVolume(int stream,
         index != mStreams[stream].mIndexMin &&
         (device == AUDIO_DEVICE_OUT_AUX_DIGITAL ||
          device == AUDIO_DEVICE_OUT_DGTL_DOCK_HEADSET ||
-         device == AUDIO_DEVICE_OUT_USB_ACCESSORY ||
-         device == AUDIO_DEVICE_OUT_USB_DEVICE)) {
+         device == AUDIO_DEVICE_OUT_USB_ACCESSORY)) {
         return 1.0;
     }
 
