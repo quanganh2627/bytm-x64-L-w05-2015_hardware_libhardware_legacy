@@ -62,7 +62,7 @@ enum audio_source {
     AUDIO_SOURCE_VOICE_RECOGNITION = 6,
     AUDIO_SOURCE_VOICE_COMMUNICATION = 7,
     AUDIO_SOURCE_MAX = AUDIO_SOURCE_VOICE_COMMUNICATION,
-
+    AUDIO_SOURCE_LPAL = 2000,
     AUDIO_SOURCE_LIST_END  // must be last - used to validate audio source type
 };
 
