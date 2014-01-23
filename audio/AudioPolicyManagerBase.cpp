@@ -71,6 +71,7 @@
 
 namespace android_audio_legacy {
 
+//[FIX ME] this is used to route notifications to IHF when HDMI MC is active
 bool AudioPolicyManagerBase :: mIsDirectOutputActive;
 
 // ----------------------------------------------------------------------------
@@ -1049,8 +1050,10 @@ status_t AudioPolicyManagerBase::stopOutput(audio_io_handle_t output,
     AudioOutputDescriptor *outputDesc = mOutputs.valueAt(index);
 
     if((outputDesc->mFlags & AudioSystem::OUTPUT_FLAG_DIRECT) && (mAvailableOutputDevices & AudioSystem::DEVICE_OUT_AUX_DIGITAL)){
-       ALOGD("stopoutput() Direct thread is stopped -inactive");
-       mIsDirectOutputActive = false;
+        if(outputDesc->mDirectOpenCount <= 0) {
+           ALOGD("stopoutput() Direct thread is stopped -inactive");
+           mIsDirectOutputActive = false;
+        }
     }
 
     // handle special case for sonification while in call
