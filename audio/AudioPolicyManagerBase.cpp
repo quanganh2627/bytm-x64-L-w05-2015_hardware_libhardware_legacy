@@ -1754,13 +1754,6 @@ bool AudioPolicyManagerBase::isOffloadSupported(const audio_offload_info_t& offl
         offloadCapabilities = strtoul(propValue2, NULL, 16);
     }
 
-    // if submix is device is enabled - disable offload
-    if((mAvailableOutputDevices & AudioSystem::DEVICE_OUT_WIDI) ||
-         (mAvailableOutputDevices & AudioSystem::DEVICE_OUT_REMOTE_SUBMIX)) {
-        ALOGV("isOffloadSupported: submix attached - offloading disabled");
-        return false;
-    }
-
     // Check if audio offload is enabled for playback of AV files
     if (offloadInfo.has_video && (!(offloadCapabilities & VIDEO_OFFLOAD))) {
         ALOGV("isOffloadSupported: audio.offload.capabilities property set to"
@@ -1812,6 +1805,10 @@ bool AudioPolicyManagerBase::isOffloadSupported(const audio_offload_info_t& offl
         return false;
     }
 
+    if (AudioSystem::DEVICE_OUT_NON_OFFLOAD & mAvailableOutputDevices) {
+        ALOGV("Offload denied during device switch when non-offloadable device still connected");
+        return false;
+    }
     // See if there is a profile to support this.
     // AUDIO_DEVICE_NONE
     IOProfile *profile = getProfileForDirectOutput(AUDIO_DEVICE_NONE /*ignore device */,
@@ -1822,6 +1819,7 @@ bool AudioPolicyManagerBase::isOffloadSupported(const audio_offload_info_t& offl
     ALOGV("isOffloadSupported() profile %sfound", profile != NULL ? "" : "NOT ");
     return (profile != NULL);
 }
+
 
 status_t AudioPolicyManagerBase::setParameters(const String8 &keyValuePairs)
 {
