@@ -81,35 +81,43 @@ bool AudioPolicyManagerBase :: mIsDirectOutputActive;
 #ifdef BGM_ENABLED
 bool AudioPolicyManagerBase::IsRemoteBGMSupported(AudioSystem::stream_type stream) {
 
-    String8 reply;
-    String8 reply2;
-    char* isBGMEnabledValue;
-
     //check whether BGM state is set only if the BGM device is available
+    //enable BGM when these conditions are satisfied
+    // 1. Enable BGM parameter is set from the unique application
+    // 2. The current active stream is music
     if ((mAvailableOutputDevices & AUDIO_DEVICE_OUT_REMOTE_BGM_SINK) &&
              (stream == AudioSystem::MUSIC)) {
-       reply = mpClientInterface->getParameters(0, String8(AUDIO_PARAMETER_KEY_REMOTE_BGM_STATE));
-       ALOGVV("%s isBGMEnabledValue = %s",__func__,reply.string());
-       isBGMEnabledValue = strpbrk((char *)reply.string(), "=");
-       ++isBGMEnabledValue;
-       mIsBGMEnabled = strcmp(isBGMEnabledValue,"true") ? false : true;
+        String8 reply = mpClientInterface->getParameters(0,
+            String8(AUDIO_PARAMETER_KEY_REMOTE_BGM_STATE));
+        AudioParameter param = AudioParameter(reply);
+        String8 value;
 
-       char* isBGMAudioActive;
-       bool IsBGMAudioavailable;
-       char* isBGMAudioValue;
-       reply2 = mpClientInterface->getParameters(0, String8(AUDIO_PARAMETER_VALUE_REMOTE_BGM_AUDIO));
-       ALOGVV("%s isBGMAudioActive = %s",__func__,reply2.string());
-       isBGMAudioValue = strpbrk((char *)reply2.string(), "=");
-       ++isBGMAudioValue;
-       IsBGMAudioavailable = strcmp(isBGMAudioValue,"true") ? false : true;
-       ALOGV("%s IsBGMAudioavailable = %d",__func__,IsBGMAudioavailable);
+        if (param.get(String8(AUDIO_PARAMETER_KEY_REMOTE_BGM_STATE), value) == NO_ERROR) {
+            mIsBGMEnabled  = (value == "true");
+        }
+        else {
+            ALOGI("mIsBGMEnabled: could not get key %s",AUDIO_PARAMETER_KEY_REMOTE_BGM_STATE);
+            mIsBGMEnabled  = false;
+        }
 
-       //enable BGM when these conditions are satisfied
-       // 1. Enable BGM parameter is set from the unique application
-       // 2. The current active stream is music
-       if (mIsBGMEnabled) {
-           return true;
-       }
+        bool IsBGMAudioavailable;
+        String8 reply2 = mpClientInterface->getParameters(0,
+            String8(AUDIO_PARAMETER_VALUE_REMOTE_BGM_AUDIO));
+        AudioParameter param2 = AudioParameter(reply2);
+
+        if (param2.get(String8(AUDIO_PARAMETER_VALUE_REMOTE_BGM_AUDIO), value) == NO_ERROR) {
+            IsBGMAudioavailable  = (value == "true");
+        }
+        else {
+            ALOGI("IsBGMAudioavailable: could not get key %s",
+                AUDIO_PARAMETER_VALUE_REMOTE_BGM_AUDIO);
+            IsBGMAudioavailable  = false;
+        }
+
+        ALOGV("%s IsBGMAudioavailable = %d, mIsBGMEnabled= %d",__func__,
+            IsBGMAudioavailable, mIsBGMEnabled);
+
+        return mIsBGMEnabled;
     }
 
     return false;
@@ -1055,7 +1063,7 @@ status_t AudioPolicyManagerBase::stopOutput(audio_io_handle_t output,
             // Informs primary HAL that a compressed output stops
             AudioParameter param;
             param.addInt(String8(AudioParameter::keyStreamFlags), AUDIO_OUTPUT_FLAG_NONE);
-            mpClientInterface->setParameters(0, param.toString(), 0);
+            mpClientInterface->setParameters(output, param.toString(), 0);
         }
 
         // decrement usage count of this stream on the output
@@ -1812,6 +1820,17 @@ bool AudioPolicyManagerBase::isOffloadSupported(const audio_offload_info_t& offl
                                             AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD);
     ALOGV("isOffloadSupported() profile %sfound", profile != NULL ? "" : "NOT ");
     return (profile != NULL);
+}
+
+status_t AudioPolicyManagerBase::setParameters(const String8 &keyValuePairs)
+{
+    AudioParameter param = AudioParameter(keyValuePairs);
+    return doParseParameters(param);
+}
+
+status_t AudioPolicyManagerBase::doParseParameters(AudioParameter &param)
+{
+    return NO_ERROR;
 }
 
 // ----------------------------------------------------------------------------
@@ -2953,13 +2972,17 @@ audio_devices_t AudioPolicyManagerBase::getDeviceForStrategy(routing_strategy st
         //If BGM devices are present, always force the output to it
         // - other attached sinks will be handled in STRATEGY_BACKGROUND_MUSIC
         if (mIsBGMEnabled) {
-           if (device2 == AUDIO_DEVICE_NONE)
-               device2 = mAvailableOutputDevices &  AudioSystem::DEVICE_OUT_AUX_DIGITAL;
-           if ((device2 == AUDIO_DEVICE_NONE) && (strategy != STRATEGY_SONIFICATION_LOCAL))
-               device2 = mAvailableOutputDevices & AudioSystem::DEVICE_OUT_REMOTE_SUBMIX;
-           if ((device2 == AUDIO_DEVICE_NONE) && (strategy != STRATEGY_SONIFICATION_LOCAL))
-               device2 = mAvailableOutputDevices & AudioSystem::DEVICE_OUT_WIDI;
-           ALOGV("[BGMUSIC] STRATEGY_MEDIA - force aux/widi always device = %x",device2);
+            if (device2 == AUDIO_DEVICE_NONE)
+                device2 = mAvailableOutputDevices &  AudioSystem::DEVICE_OUT_AUX_DIGITAL;
+            if ((device2 == AUDIO_DEVICE_NONE) &&
+                    (strategy != STRATEGY_SONIFICATION_LOCAL) &&
+                    (strategy != STRATEGY_SONIFICATION))
+                device2 = mAvailableOutputDevices & AudioSystem::DEVICE_OUT_REMOTE_SUBMIX;
+            if ((device2 == AUDIO_DEVICE_NONE) &&
+                    (strategy != STRATEGY_SONIFICATION_LOCAL) &&
+                    (strategy != STRATEGY_SONIFICATION))
+                device2 = mAvailableOutputDevices & AudioSystem::DEVICE_OUT_WIDI;
+          ALOGV("[BGMUSIC] STRATEGY_MEDIA - force aux/widi always device = %x",device2);
         }
 #endif//BGM_ENABLED
 
@@ -3385,6 +3408,7 @@ AudioPolicyManagerBase::device_category AudioPolicyManagerBase::getDeviceCategor
         case AUDIO_DEVICE_OUT_BLUETOOTH_SCO_HEADSET:
         case AUDIO_DEVICE_OUT_BLUETOOTH_A2DP:
         case AUDIO_DEVICE_OUT_BLUETOOTH_A2DP_HEADPHONES:
+        case AUDIO_DEVICE_OUT_DGTL_DOCK_HEADSET:
             return DEVICE_CATEGORY_HEADSET;
         case AUDIO_DEVICE_OUT_SPEAKER:
         case AUDIO_DEVICE_OUT_BLUETOOTH_SCO_CARKIT:
@@ -3607,7 +3631,6 @@ float AudioPolicyManagerBase::computeVolume(int stream,
     if (stream == AudioSystem::MUSIC &&
         index != mStreams[stream].mIndexMin &&
         (device == AUDIO_DEVICE_OUT_AUX_DIGITAL ||
-         device == AUDIO_DEVICE_OUT_DGTL_DOCK_HEADSET ||
          device == AUDIO_DEVICE_OUT_USB_ACCESSORY ||
          device == AUDIO_DEVICE_OUT_USB_DEVICE)) {
         return 1.0;

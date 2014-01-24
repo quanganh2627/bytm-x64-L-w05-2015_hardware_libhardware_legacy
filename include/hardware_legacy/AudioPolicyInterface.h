@@ -167,6 +167,9 @@ public:
     virtual status_t    dump(int fd) = 0;
 
     virtual bool isOffloadSupported(const audio_offload_info_t& offloadInfo) = 0;
+
+    // setParameters interface in case a specific use of parameters should be done in the Policy
+    virtual status_t setParameters(const String8& keyValuePairs) = 0;
 };
 
 
