@@ -3063,7 +3063,11 @@ audio_devices_t AudioPolicyManagerBase::getDeviceForStrategy(routing_strategy st
         if (device2 == 0) {
             device2 = mAvailableOutputDevices & AudioSystem::DEVICE_OUT_SPEAKER;
         }
-
+        if ((isStreamActive(AudioSystem::RING)) ||
+                (isStreamActive(AudioSystem::ALARM)) ||
+                (isStreamActive(AudioSystem::ENFORCED_AUDIBLE))) {
+            device2 |= (mAvailableOutputDevices & AUDIO_DEVICE_OUT_SPEAKER);
+        }
         device |= device2;
         if (device) break;
         device = mDefaultOutputDevice;
