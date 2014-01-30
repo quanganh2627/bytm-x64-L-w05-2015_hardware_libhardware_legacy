@@ -500,8 +500,16 @@ void wifi_close_hostapd_connection()
     }
 }
 
-
 int wifi_get_AP_channel_list(char *addr, size_t *addr_len)
+{
+    int ret = hostapd_get_AP_channel_list(addr, addr_len);
+    if(ret) {
+        ret = supplicant_get_AP_channel_list(addr, addr_len);
+    }
+    return ret;
+}
+
+int hostapd_get_AP_channel_list(char *addr, size_t *addr_len)
 {
     char  *pos, reply[1024];
     size_t reply_len;
@@ -552,6 +560,61 @@ int wifi_get_AP_channel_list(char *addr, size_t *addr_len)
 
  close_sock:
     wifi_close_hostapd_connection();
+
+    return rs;
+}
+
+int supplicant_get_AP_channel_list(char *addr, size_t *addr_len)
+{
+    char  *pos, reply[1024];
+    size_t reply_len;
+    int ret;
+    char *cmd = "AP-CHAN-LIST";
+    int rs = 0;
+
+    if (!addr_len) {
+        ALOGE("addr_len is null\n");
+        return -1;
+    }
+
+    if (ctrl_conn == NULL) {
+        ALOGV("Not connected to supplicant, trying to connect\n");
+
+        if (wifi_connect_to_supplicant() == -1) {
+          ALOGV("Not connected to supplicant - \"%s\" command dropped.\n", cmd);
+          return -1;
+        }
+    }
+
+    reply_len = sizeof(reply) - 1;
+    log_cmd(cmd);
+
+    ret = wpa_ctrl_request(ctrl_conn, cmd, strlen(cmd), reply, &reply_len, NULL);
+    if (ret == -2) {
+        ALOGD("'%s' command timed out.\n", cmd);
+        /* unblocks the monitor receive socket for termination */
+        TEMP_FAILURE_RETRY(write(exit_sockets[0], "T", 1));
+        rs = -2;
+        goto close_supplicant_sock;
+    } else if (ret < 0 || strncmp(reply, "FAIL", 4) == 0) {
+        LOGI("REPLY: FAIL\n");
+        rs = -1;
+        goto close_supplicant_sock;
+    }
+
+    log_reply(reply, &reply_len);
+
+    reply[reply_len] = '\0';
+    ALOGE("%s", reply);
+
+    pos = reply;
+    while (*pos != '\0' && *pos != '\n')
+        pos++;
+    *pos = '\0';
+    strlcpy(addr, reply, *addr_len);
+
+ close_supplicant_sock:
+    wifi_close_supplicant_connection();
 
     return rs;
 }
