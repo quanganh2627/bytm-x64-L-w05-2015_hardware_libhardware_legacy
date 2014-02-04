@@ -86,7 +86,7 @@ int write_to_file(const char *path, const char *data, size_t len)
 
 void log_cmd(const char *cmd)
 {
-    if (strstr (cmd, "SET_NETWORK") && strstr(cmd, "password")) {
+    if (strstr (cmd, "SET_NETWORK") && (strstr(cmd, "password") || strstr(cmd, "psk"))) {
         char *pbuf = malloc(strlen(cmd) + 1);
         if (pbuf) {
             strncpy(pbuf, cmd, strlen(cmd) + 1);
