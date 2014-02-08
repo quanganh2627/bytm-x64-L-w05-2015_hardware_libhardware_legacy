@@ -3243,9 +3243,14 @@ uint32_t AudioPolicyManagerBase::setOutputDevice(audio_io_handle_t output,
     //  - the requested device is AUDIO_DEVICE_NONE
     //  - the requested device is the same as current device and force is not specified.
     // Doing this check here allows the caller to call setOutputDevice() without conditions
+    // The above is overridden in case of compress offload. When the device is anything other than
+    // DEVICE_NONE, we must forcefully set the device HAL.
     if ((device == AUDIO_DEVICE_NONE || device == prevDevice) && !force) {
-        ALOGV("setOutputDevice() setting same device %04x or null device for output %d", device, output);
-        return muteWaitMs;
+        if (!(device != AUDIO_DEVICE_NONE && (outputDesc->mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD))) {
+            ALOGV("setOutputDevice() setting same device %04x"
+                  "or null device for output %d", device, output);
+            return muteWaitMs;
+        }
     }
 
     ALOGV("setOutputDevice() changing device");
