@@ -55,6 +55,8 @@ endif #DOLBY_UDC
 ifdef DOLBY_DAP
     ifdef DOLBY_DAP_OPENSLES
         LOCAL_CFLAGS += -DDOLBY_DAP_OPENSLES
+        LOCAL_CFLAGS += -DDOLBY_DAP_OPENSLES_MOVE_EFFECT
+        LOCAL_C_INCLUDES += $(TOP)/vendor/intel/PRIVATE/dolby_ds1/libds/include
     endif
 endif #DOLBY_END
 

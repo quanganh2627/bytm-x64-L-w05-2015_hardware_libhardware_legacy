@@ -65,10 +65,9 @@
 #include <hardware_legacy/audio_policy_conf.h>
 #include <cutils/properties.h>
 #include <media/AudioParameter.h>
-#ifdef DOLBY_UDC
-// System property shared with dolby codec
-#define DOLBY_SYSTEM_PROPERTY "dolby.audio.sink.info"
-#endif // DOLBY_UDC
+#ifdef DOLBY_DAP_OPENSLES_MOVE_EFFECT
+#include "effect_ds.h"
+#endif // DOLBY_END
 
 namespace android_audio_legacy {
 
@@ -79,6 +78,107 @@ bool AudioPolicyManagerBase :: mIsDirectOutputActive;
 // AudioPolicyInterface implementation
 // ----------------------------------------------------------------------------
 
+#ifdef DOLBY_UDC
+// System property shared with dolby codec
+#define DOLBY_SYSTEM_PROPERTY "dolby.audio.sink.info"
+
+enum HdmiDeviceCapability {
+    CAP_HDMI_INVALID,
+    CAP_HDMI_2,
+    CAP_HDMI_6,
+    CAP_HDMI_8,
+};
+
+class DolbySystemProperty
+{
+    static HdmiDeviceCapability mCurrentHdmiDeviceCapability;
+public:
+
+    static void setHdmiCapability(HdmiDeviceCapability cap)
+    {
+        ALOGV("DOLBY_ENDPOINT setHdmiDeviceCapability = %d", cap);
+        mCurrentHdmiDeviceCapability = cap;
+    }
+
+    // Sets the dolby system property dolby.audio.sink.info
+    //
+    // At present we are only setting system property for Headphone/Headset/HDMI/Speaker
+    // and the same is supported in DDPDecoder.cpp EndpointConfig table.
+    // if new device is available eg. bluetooth or usb_audio, then system property
+    // must set in this function and also its downmix configuration should be set in
+    // DDPDecoder.cpp EndpointConfig table.
+    static void set(audio_devices_t device)
+    {
+        ALOGV("DolbySystemProperty::set device 0x%x", device);
+        switch(device) {
+            case AUDIO_DEVICE_OUT_WIRED_HEADSET:
+            case AUDIO_DEVICE_OUT_WIRED_HEADPHONE:
+                ALOGV("DOLBY_ENDPOINT HEADPHONE");
+                property_set(DOLBY_SYSTEM_PROPERTY, "headset");
+                break;
+            /*case AUDIO_DEVICE_OUT_XXX:
+              example case of bluetooth
+            case AUDIO_DEVICE_OUT_BLUETOOTH_A2DP:
+            case AUDIO_DEVICE_OUT_BLUETOOTH_A2DP_HEADPHONES:
+            case AUDIO_DEVICE_OUT_BLUETOOTH_A2DP_SPEAKER:
+            case AUDIO_DEVICE_OUT_BLUETOOTH_SCO:
+            case AUDIO_DEVICE_OUT_BLUETOOTH_SCO_CARKIT:
+            case AUDIO_DEVICE_OUT_BLUETOOTH_SCO_HEADSET:
+                property_set(DOLBY_SYSTEM_PROPERTY,"bluetooth");
+                break;
+            */
+            case AUDIO_DEVICE_OUT_AUX_DIGITAL:
+                if(mCurrentHdmiDeviceCapability == CAP_HDMI_8)
+                {
+                    property_set(DOLBY_SYSTEM_PROPERTY, "hdmi8");
+                    ALOGV("DOLBY_ENDPOINT HDMI8");
+                }
+                else if (mCurrentHdmiDeviceCapability == CAP_HDMI_6)
+                {
+                    property_set(DOLBY_SYSTEM_PROPERTY, "hdmi6");
+                    ALOGV("DOLBY_ENDPOINT HDMI6");
+                }
+                else //mCurrentHdmiDeviceCapability == HDMI_2 or unknown
+                {
+                    ALOGV("DOLBY_ENDPOINT HDMI2");
+                    property_set(DOLBY_SYSTEM_PROPERTY, "hdmi2");
+                }
+                break;
+            case AUDIO_DEVICE_OUT_SPEAKER:
+                ALOGV("DOLBY_ENDPOINT SPEAKER");
+                property_set(DOLBY_SYSTEM_PROPERTY, "speaker");
+                break;
+            case AUDIO_DEVICE_OUT_REMOTE_SUBMIX:
+                ALOGV("DOLBY_ENDPOINT HDMI2");
+                property_set(DOLBY_SYSTEM_PROPERTY, "hdmi2");
+                break;
+            case AUDIO_DEVICE_OUT_DEFAULT:
+                // If the strategy for handling the current value of
+                // mAvailableOutputDevices is not implemented
+                // AUDIO_DEVICE_OUT_DEFAULT is set.
+                // fall-through
+            default:
+                ALOGV("DOLBY_ENDPOINT INVALID");
+                property_set(DOLBY_SYSTEM_PROPERTY, "invalid");
+                break;
+        }
+    }
+};
+
+HdmiDeviceCapability DolbySystemProperty::mCurrentHdmiDeviceCapability = CAP_HDMI_INVALID;
+
+#endif //DOLBY_END
+#ifdef DOLBY_DAP_OPENSLES_MOVE_EFFECT
+static inline bool checkFlagsToMoveDs(audio_output_flags_t flags)
+{
+    if ((flags & AUDIO_OUTPUT_FLAG_DIRECT) ||
+        (flags & AUDIO_OUTPUT_FLAG_FAST)) {
+        return false;
+    }
+
+    return true;
+}
+#endif // DOLBY_END
 
 #ifdef BGM_ENABLED
 bool AudioPolicyManagerBase::IsRemoteBGMSupported(AudioSystem::stream_type stream) {
@@ -285,6 +385,10 @@ status_t AudioPolicyManagerBase::setDeviceConnectionState(audio_devices_t device
         }
 
         updateDevicesAndOutputs();
+#ifdef DOLBY_UDC
+        audio_devices_t audioOutputDevice = getDeviceForStrategy(getStrategy(AudioSystem::MUSIC), false);
+        DolbySystemProperty::set(audioOutputDevice);
+#endif //DOLBY_END
         for (size_t i = 0; i < mOutputs.size(); i++) {
             // do not force device change on duplicated output because if device is 0, it will
             // also force a device 0 for the two outputs it is duplicated to which may override
@@ -294,10 +398,6 @@ status_t AudioPolicyManagerBase::setDeviceConnectionState(audio_devices_t device
                             !mOutputs.valueAt(i)->isDuplicated(),
                             0);
         }
-#ifdef DOLBY_UDC
-        audio_devices_t audioOutputDevice = getDeviceForStrategy(getStrategy(AudioSystem::MUSIC), false);
-        setDolbySystemProperty(audioOutputDevice);
-#endif //DOLBY_UDC
 
         if (device == AUDIO_DEVICE_OUT_WIRED_HEADSET) {
             device = AUDIO_DEVICE_IN_WIRED_HEADSET;
@@ -1023,15 +1123,31 @@ status_t AudioPolicyManagerBase::startOutput(audio_io_handle_t output,
         }
     }
 #ifdef DOLBY_UDC
-    // It is observed that in some use-cases where both outputs are present
-    // eg. bluetooth and headphone,the output for particular stream type is
-    // decided in this routine. Hence we must call getDeviceForStrategy in
-    // order to get the current active output device for this stream type
-    // and update the dolby system property.
+    // It is observed that in some use-cases where both outputs are present eg. bluetooth and headphone,
+    // the output for particular stream type is decided in this routine. Hence we must call
+    // getDeviceForStrategy in order to get the current active output for this stream type and update
+    // the dolby system property.
     if (stream == AudioSystem::MUSIC)
     {
-        audio_devices_t audioOutputDevice = getDeviceForStrategy(getStrategy(AudioSystem::MUSIC), false);
-        setDolbySystemProperty(audioOutputDevice);
+        audio_devices_t audioOutputDevice = getDeviceForStrategy(getStrategy(AudioSystem::MUSIC), true);
+        DolbySystemProperty::set(audioOutputDevice);
+    }
+#endif // DOLBY_END
+#ifdef DOLBY_DAP_OPENSLES_MOVE_EFFECT
+    if((stream == AudioSystem::MUSIC) && (checkFlagsToMoveDs(outputDesc->mFlags))) {
+        status_t status = NO_ERROR;
+        for (size_t i = 0; i < mEffects.size(); i++) {
+            EffectDescriptor *desc = mEffects.editValueAt(i);
+            ALOGV("startOutput(): effect name %s srcOutput %d dstOutput %d", desc->mDesc.name, desc->mIo, output);
+            if (desc->mSession == AUDIO_SESSION_OUTPUT_MIX && desc->mIo != output && (memcmp(&desc->mDesc.uuid, &EFFECT_UUID_DS, sizeof(effect_uuid_t)) == 0)) {
+                ALOGV("startOutput(): moving effect %s to output %d", desc->mDesc.name, output);
+                status = mpClientInterface->moveEffects(DOLBY_MOVE_EFFECT_SIGNAL, desc->mIo, output);
+                if (status == NO_ERROR) {
+                    desc->mIo = output;
+                    break;
+                }
+            }
+        }
     }
 #endif // DOLBY_UDC
     return NO_ERROR;
@@ -1101,6 +1217,33 @@ status_t AudioPolicyManagerBase::stopOutput(audio_io_handle_t output,
             // update the outputs if stopping one with a stream that can affect notification routing
             handleNotificationRoutingForStream(stream);
         }
+#ifdef DOLBY_DAP_OPENSLES_MOVE_EFFECT
+        if((stream == AudioSystem::MUSIC) && (checkFlagsToMoveDs(outputDesc->mFlags))) {
+            status_t status = NO_ERROR;
+            for (size_t i = 0; i < mEffects.size(); i++) {
+                EffectDescriptor *desc = mEffects.editValueAt(i);
+                if (desc->mSession == AUDIO_SESSION_OUTPUT_MIX && (memcmp(&desc->mDesc.uuid, &EFFECT_UUID_DS, sizeof(effect_uuid_t)) == 0) && (desc->mIo == output)) {
+                    audio_io_handle_t moveOutput = mPrimaryOutput;
+                    for (size_t i = 0; i < mOutputs.size(); ++i) {
+                        if ((mOutputs.valueAt(i)->mRefCount[AudioSystem::MUSIC] != 0) &&
+                                checkFlagsToMoveDs(mOutputs.valueAt(i)->mFlags)) {
+                            moveOutput = mOutputs.valueAt(i)->mId;
+                            break;
+                        }
+                    }
+
+                    if (output != moveOutput) {
+                        ALOGV("StopOutput(): moving effect %s to output %d", desc->mDesc.name, moveOutput);
+                        status = mpClientInterface->moveEffects(DOLBY_MOVE_EFFECT_SIGNAL, desc->mIo, moveOutput);
+                        if (status == NO_ERROR) {
+                            desc->mIo = moveOutput;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+#endif //DOLBY_END
 
 #ifdef BGM_ENABLED
         if (IsRemoteBGMSupported(stream) && (output == mBGMOutput) &&
@@ -1153,7 +1296,22 @@ void AudioPolicyManagerBase::releaseOutput(audio_io_handle_t output)
             // output by default: move them back to the appropriate output.
             audio_io_handle_t dstOutput = getOutputForEffect();
             if (dstOutput != mPrimaryOutput) {
+#ifdef DOLBY_DAP_OPENSLES_MOVE_EFFECT
+                status_t status = mpClientInterface->moveEffects(AUDIO_SESSION_OUTPUT_MIX, mPrimaryOutput, dstOutput);
+                if (status == NO_ERROR) {
+                    // update the mIo member variable of EffectDescriptor
+                    for (size_t i = 0; i < mEffects.size(); i++) {
+                        EffectDescriptor *desc = mEffects.editValueAt(i);
+                        if (desc->mSession == AUDIO_SESSION_OUTPUT_MIX &&
+                            (memcmp(&desc->mDesc.uuid, &EFFECT_UUID_DS, sizeof(effect_uuid_t)) == 0)) {
+                            ALOGV("%s updating mIo", __FUNCTION__);
+                            desc->mIo = dstOutput;
+                        }
+                    }
+                }
+#else
                 mpClientInterface->moveEffects(AUDIO_SESSION_OUTPUT_MIX, mPrimaryOutput, dstOutput);
+#endif // DOLBY_END
             }
         }
     }
@@ -1452,11 +1610,9 @@ audio_io_handle_t AudioPolicyManagerBase::selectOutputForEffects(
         if ((desc->mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) != 0) {
             outputOffloaded = outputs[i];
         }
-#ifndef DOLBY_DAP_OPENSLES
         if ((desc->mFlags & AUDIO_OUTPUT_FLAG_DEEP_BUFFER) != 0) {
             outputDeepBuffer = outputs[i];
         }
-#endif
     }
 
     ALOGV("selectOutputForEffects outputOffloaded %d outputDeepBuffer %d",
@@ -1861,11 +2017,11 @@ AudioPolicyManagerBase::AudioPolicyManagerBase(AudioPolicyClientInterface *clien
     }
 
 #ifdef DOLBY_UDC
-    // Set dolby system property to speaker while booting, if any other
-    // device is plugged-in setDeviceConnectionState will be called which
+    // Set dolby system property to speaker while booting,
+    // if any other device is plugged-in setDeviceConnectionState will be called which
     // should set appropriate system property.
-    setDolbySystemProperty(AUDIO_DEVICE_OUT_SPEAKER);
-#endif // DOLBY_UDC
+    DolbySystemProperty::set(AUDIO_DEVICE_OUT_SPEAKER);
+#endif // DOLBY_END
     mA2dpDeviceAddress = String8("");
     mScoDeviceAddress = String8("");
     mUsbCardAndDevice = String8("");
@@ -2303,13 +2459,13 @@ status_t AudioPolicyManagerBase::checkOutputsForDevice(audio_devices_t device,
 
                     if (supportHDMI8)
                     {
-                        ALOGV("DOLBY_ENDPOINT mCurrentHdmiDeviceCapability = HDMI_8");
-                        mCurrentHdmiDeviceCapability = HDMI_8;
+                        ALOGV("DOLBY_ENDPOINT HDMI_8");
+                        DolbySystemProperty::setHdmiCapability(CAP_HDMI_8);
                     }
                     else
                     {
-                        ALOGV("DOLBY_ENDPOINT mCurrentHdmiDeviceCapability = HDMI_6");
-                        mCurrentHdmiDeviceCapability = HDMI_6;
+                        ALOGV("DOLBY_ENDPOINT HDMI_6");
+                        DolbySystemProperty::setHdmiCapability(CAP_HDMI_6);
                     }
                 }
 #endif //DOLBY_UDC
@@ -2322,10 +2478,10 @@ status_t AudioPolicyManagerBase::checkOutputsForDevice(audio_devices_t device,
 #ifdef DOLBY_UDC
                 if (device == AUDIO_DEVICE_OUT_AUX_DIGITAL)
                 {
-                    // Seems the current behaviour for HDMI 2 case is to have
-                    // output to be equal to 0.
-                    ALOGV("DOLBY_ENDPOINT mCurrentHdmiDeviceCapability = HDMI_2");
-                    mCurrentHdmiDeviceCapability = HDMI_2;
+                    // Seems the current behaviour for HDMI 2 case is to have output to be
+                    // equal to 0.
+                    ALOGV("DOLBY_ENDPOINT HDMI_2");
+                    DolbySystemProperty::setHdmiCapability(CAP_HDMI_2);
                 }
 #endif // DOLBY_UDC
             } else {
@@ -2342,8 +2498,8 @@ status_t AudioPolicyManagerBase::checkOutputsForDevice(audio_devices_t device,
 #ifdef DOLBY_UDC
         if (device == AUDIO_DEVICE_OUT_AUX_DIGITAL)
         {
-            mCurrentHdmiDeviceCapability = HDMI_INVALID;
-            ALOGV("DOLBY_ENDPOINT mCurrentHdmiDeviceCapability = HDMI_INVALID");
+            DolbySystemProperty::setHdmiCapability(CAP_HDMI_INVALID);
+            ALOGV("DOLBY_ENDPOINT HDMI_INVALID");
         }
 #endif //DOLBY_UDC
         // check if one opened output is not needed any more after disconnecting one device
@@ -2488,7 +2644,6 @@ void AudioPolicyManagerBase::checkOutputForStrategy(routing_strategy strategy)
     audio_devices_t newDevice = getDeviceForStrategy(strategy, false /*fromCache*/);
     SortedVector<audio_io_handle_t> srcOutputs = getOutputsForDevice(oldDevice, mPreviousOutputs);
     SortedVector<audio_io_handle_t> dstOutputs = getOutputsForDevice(newDevice, mOutputs);
-
     if (!vectorsEqual(srcOutputs,dstOutputs)) {
         ALOGV("checkOutputForStrategy() strategy %d, moving from output %d to output %d",
               strategy, srcOutputs[0], dstOutputs[0]);
@@ -3966,56 +4121,6 @@ uint32_t AudioPolicyManagerBase::getMaxEffectsMemory()
     return MAX_EFFECTS_MEMORY;
 }
 
-#ifdef DOLBY_UDC
-// Sets the dolby system property dolby.audio.sink.info
-//
-// At present we are only setting system property for Headphone/Headset/HDMI/Speaker
-// and the same is supported in DDPDecoder.cpp EndpointConfig table.
-// if new device is available eg. bluetooth or usb_audio, then system property
-// must set in this function and also its downmix configuration should be set in
-// DDPDecoder.cpp EndpointConfig table.
-void AudioPolicyManagerBase::setDolbySystemProperty(audio_devices_t device)
-{
-    ALOGV("setDolbySystemProperty device 0x%x",device);
-    switch(device) {
-        case AUDIO_DEVICE_OUT_WIRED_HEADSET:
-        case AUDIO_DEVICE_OUT_WIRED_HEADPHONE:
-            ALOGV("DOLBY_ENDPOINT HEADPHONE");
-            property_set(DOLBY_SYSTEM_PROPERTY,"headset");
-            break;
-        case AUDIO_DEVICE_OUT_AUX_DIGITAL:
-            if(mCurrentHdmiDeviceCapability == HDMI_8)
-            {
-                property_set(DOLBY_SYSTEM_PROPERTY,"hdmi8");
-                ALOGV("DOLBY_ENDPOINT HDMI8");
-            }
-            else if (mCurrentHdmiDeviceCapability == HDMI_6)
-            {
-                property_set(DOLBY_SYSTEM_PROPERTY,"hdmi6");
-                ALOGV("DOLBY_ENDPOINT HDMI6");
-            }
-            else //mCurrentHdmiDeviceCapability == HDMI_2 or unknown
-            {
-                ALOGV("DOLBY_ENDPOINT HDMI2");
-                property_set(DOLBY_SYSTEM_PROPERTY,"hdmi2");
-            }
-            break;
-        case AUDIO_DEVICE_OUT_SPEAKER:
-            ALOGV("DOLBY_ENDPOINT SPEAKER");
-            property_set(DOLBY_SYSTEM_PROPERTY,"speaker");
-            break;
-        case AUDIO_DEVICE_OUT_DEFAULT:
-            // If the strategy for handling the current value of
-            // mAvailableOutputDevices is not implemented
-            // AUDIO_DEVICE_OUT_DEFAULT is set.
-            // fall-through
-        default:
-            ALOGV("DOLBY_ENDPOINT INVALID");
-            property_set(DOLBY_SYSTEM_PROPERTY,"invalid");
-            break;
-    }
-}
-#endif //DOLBY_UDC
 // --- AudioOutputDescriptor class implementation
 
 AudioPolicyManagerBase::AudioOutputDescriptor::AudioOutputDescriptor(
