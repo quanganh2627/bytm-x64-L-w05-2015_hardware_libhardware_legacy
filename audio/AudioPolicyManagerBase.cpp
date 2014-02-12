@@ -1068,7 +1068,9 @@ status_t AudioPolicyManagerBase::startOutput(audio_io_handle_t output,
     // necessary for a correct control of hardware output routing by startOutput() and stopOutput()
     outputDesc->changeRefCount(stream, 1);
 
-    if((outputDesc->mFlags & AudioSystem::OUTPUT_FLAG_DIRECT) && (mAvailableOutputDevices & AudioSystem::DEVICE_OUT_AUX_DIGITAL)){
+    if((outputDesc->mFlags & AudioSystem::OUTPUT_FLAG_DIRECT) &&
+       ((mAvailableOutputDevices & AudioSystem::DEVICE_OUT_AUX_DIGITAL) ||
+        (mAvailableOutputDevices & AudioSystem::DEVICE_OUT_DGTL_DOCK_HEADSET))) {
        ALOGD("startoutput() Direct thread is active");
        mIsDirectOutputActive = true;
     }
@@ -1172,7 +1174,9 @@ status_t AudioPolicyManagerBase::stopOutput(audio_io_handle_t output,
 
     AudioOutputDescriptor *outputDesc = mOutputs.valueAt(index);
 
-    if((outputDesc->mFlags & AudioSystem::OUTPUT_FLAG_DIRECT) && (mAvailableOutputDevices & AudioSystem::DEVICE_OUT_AUX_DIGITAL)){
+    if((outputDesc->mFlags & AudioSystem::OUTPUT_FLAG_DIRECT) &&
+       ((mAvailableOutputDevices & AudioSystem::DEVICE_OUT_AUX_DIGITAL) ||
+        (mAvailableOutputDevices & AudioSystem::DEVICE_OUT_DGTL_DOCK_HEADSET))){
         if(outputDesc->mDirectOpenCount <= 0) {
            ALOGD("stopoutput() Direct thread is stopped -inactive");
            mIsDirectOutputActive = false;
