@@ -550,7 +550,6 @@ int hostapd_get_AP_channel_list(char *addr, size_t *addr_len)
     log_reply(reply, &reply_len);
 
     reply[reply_len] = '\0';
-    ALOGE("%s", reply);
 
     pos = reply;
     while (*pos != '\0' && *pos != '\n')
@@ -605,7 +604,6 @@ int supplicant_get_AP_channel_list(char *addr, size_t *addr_len)
     log_reply(reply, &reply_len);
 
     reply[reply_len] = '\0';
-    ALOGE("%s", reply);
 
     pos = reply;
     while (*pos != '\0' && *pos != '\n')
