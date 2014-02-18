@@ -595,11 +595,11 @@ int supplicant_get_AP_channel_list(char *addr, size_t *addr_len)
         /* unblocks the monitor receive socket for termination */
         TEMP_FAILURE_RETRY(write(exit_sockets[0], "T", 1));
         rs = -2;
-        goto close_supplicant_sock;
+        goto end_of_function;
     } else if (ret < 0 || strncmp(reply, "FAIL", 4) == 0) {
         LOGI("REPLY: FAIL\n");
         rs = -1;
-        goto close_supplicant_sock;
+        goto end_of_function;
     }
 
     log_reply(reply, &reply_len);
@@ -613,9 +613,7 @@ int supplicant_get_AP_channel_list(char *addr, size_t *addr_len)
     *pos = '\0';
     strlcpy(addr, reply, *addr_len);
 
- close_supplicant_sock:
-    wifi_close_supplicant_connection();
-
+ end_of_function:
     return rs;
 }
 
