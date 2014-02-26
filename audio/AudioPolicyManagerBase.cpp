@@ -942,13 +942,6 @@ audio_io_handle_t AudioPolicyManagerBase::getOutput(AudioSystem::stream_type str
         mPreviousOutputs = mOutputs;
         ALOGV("getOutput() returns new direct output %d", output);
 
-        if (outputDesc->mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) {
-            // Informs primary HAL that a compressed output will be started
-            ALOGV("getOutput setParam");
-            AudioParameter param;
-            param.addInt(String8(AudioParameter::keyStreamFlags), AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD);
-            mpClientInterface->setParameters(0, param.toString(), 0);
-        }
         return output;
     }
 
@@ -2591,13 +2584,6 @@ void AudioPolicyManagerBase::closeOutput(audio_io_handle_t output)
     AudioParameter param;
     param.add(String8("closing"), String8("true"));
     mpClientInterface->setParameters(output, param.toString());
-    if (outputDesc->mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) {
-        // Informs primary HAL that a compressed output is closed
-        AudioParameter param;
-        param.addInt(String8(AudioParameter::keyStreamFlags),
-                                       AUDIO_OUTPUT_FLAG_NONE);
-        mpClientInterface->setParameters(0, param.toString(), 0);
-    }
     mpClientInterface->closeOutput(output);
 
 #ifdef BGM_ENABLED
