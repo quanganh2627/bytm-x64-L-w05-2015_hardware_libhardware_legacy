@@ -638,6 +638,8 @@ protected:
         HdmiDeviceCapability            mCurrentHdmiDeviceCapability;
 #endif //DOLBY_UDC
 
+        static bool isVirtualInputDevice(audio_devices_t device);
+
 private:
         static float volIndexToAmpl(audio_devices_t device, const StreamDescriptor& streamDesc,
                 int indexInUi);
@@ -645,7 +647,6 @@ private:
         //    routing of notifications
         void handleNotificationRoutingForStream(AudioSystem::stream_type stream);
 
-        static bool isVirtualInputDevice(audio_devices_t device);
 #ifdef BGM_ENABLED
         bool IsRemoteBGMSupported(AudioSystem::stream_type stream);
         // return the strategy corresponding to a given stream type in case of BGM
