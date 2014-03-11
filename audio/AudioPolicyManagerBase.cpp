@@ -745,6 +745,34 @@ AudioPolicyManagerBase::IOProfile *AudioPolicyManagerBase::getProfileForDirectOu
                                                                uint32_t channelMask,
                                                                audio_output_flags_t flags)
 {
+
+#ifdef SURROUND_SUBMIX
+    if ((AudioSystem::popCount(channelMask) > 2) &&
+        (device == AudioSystem::DEVICE_OUT_REMOTE_SUBMIX) &&
+        !(flags & AUDIO_OUTPUT_FLAG_DIRECT)) {
+            //check if the connected sink supports direct profile
+            bool IsDirectProfileSupported = false;
+            String8 reply = mpClientInterface->getParameters(0,
+                               String8(AUDIO_PARAMETER_KEY_DIRECT_PROFILE_SUPPORTED));
+
+            AudioParameter param = AudioParameter(reply);
+            String8 value;
+
+            if (param.get(String8(AUDIO_PARAMETER_KEY_DIRECT_PROFILE_SUPPORTED), value)
+                                         == NO_ERROR) {
+                IsDirectProfileSupported  = (value == "true");
+            }
+
+            ALOGVV("IsDirectProfileSupported = %d value = %s",IsDirectProfileSupported,
+                                         value.string());
+
+            if(!IsDirectProfileSupported) {
+               ALOGV("Direct profile unavailable for the submix sink");
+               return 0;
+            }
+    }
+#endif
+
     for (size_t i = 0; i < mHwModules.size(); i++) {
         if (mHwModules[i]->mHandle == 0) {
             continue;
@@ -4695,6 +4723,7 @@ const struct StringToEnum sInChannelsNameToEnumTable[] = {
     STRING_TO_ENUM(AUDIO_CHANNEL_IN_MONO),
     STRING_TO_ENUM(AUDIO_CHANNEL_IN_STEREO),
     STRING_TO_ENUM(AUDIO_CHANNEL_IN_FRONT_BACK),
+    STRING_TO_ENUM(AUDIO_CHANNEL_IN_SUBMIX_5POINT1),
 };
 
 
