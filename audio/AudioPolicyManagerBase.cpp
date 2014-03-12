@@ -2468,7 +2468,8 @@ void AudioPolicyManagerBase::checkOutputForStrategy(routing_strategy strategy)
     SortedVector<audio_io_handle_t> srcOutputs = getOutputsForDevice(oldDevice, mPreviousOutputs);
     SortedVector<audio_io_handle_t> dstOutputs = getOutputsForDevice(newDevice, mOutputs);
 
-    if (!vectorsEqual(srcOutputs,dstOutputs)) {
+    if ((!vectorsEqual(srcOutputs,dstOutputs)) &&
+            (srcOutputs[0] != dstOutputs[0])) {
         ALOGV("checkOutputForStrategy() strategy %d, moving from output %d to output %d",
               strategy, srcOutputs[0], dstOutputs[0]);
         // mute strategy while moving tracks from one output to another
