@@ -3500,7 +3500,6 @@ uint32_t AudioPolicyManagerBase::setOutputDevice(audio_io_handle_t output,
     ALOGV("setOutputDevice() changing device");
     // do the routing
     param.addInt(String8(AudioParameter::keyRouting), (int)device);
-    param.addInt(String8(AudioParameter::keyStreamFlags), (int)outputDesc->mFlags);
 
     // For offload use case routing has to be done via primary hal
     // send the info to primary hal for routing
@@ -3508,6 +3507,8 @@ uint32_t AudioPolicyManagerBase::setOutputDevice(audio_io_handle_t output,
         mpClientInterface->setParameters(mPrimaryOutput, param.toString(),
                                           delayMs);
     } else {
+        // Append stream flags information for routing
+        param.addInt(String8(AudioParameter::keyStreamFlags), (int)outputDesc->mFlags);
         mpClientInterface->setParameters(output, param.toString(), delayMs);
     }
 
