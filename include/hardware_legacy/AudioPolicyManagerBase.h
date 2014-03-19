@@ -546,6 +546,9 @@ protected:
 
         AudioPolicyClientInterface *mpClientInterface;  // audio policy client interface
         audio_io_handle_t mPrimaryOutput;              // primary output handle
+        audio_io_handle_t mMusicOffloadOutput; // Music offload output handler
+        uint32_t mMusicOffloadSessionId;       // Audio session which has
+                                               //active offload output
         // list of descriptors for outputs currently opened
         DefaultKeyedVector<audio_io_handle_t, AudioOutputDescriptor *> mOutputs;
         // copy of mOutputs before setDeviceConnectionState() opens new outputs

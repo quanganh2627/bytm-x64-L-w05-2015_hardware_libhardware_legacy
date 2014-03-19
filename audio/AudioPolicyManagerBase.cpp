@@ -946,6 +946,9 @@ audio_io_handle_t AudioPolicyManagerBase::getOutput(AudioSystem::stream_type str
         }
         audio_io_handle_t srcOutput = getOutputForEffect();
         addOutput(output, outputDesc);
+        if (outputDesc->mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) {
+            mMusicOffloadOutput = true;
+        }
         audio_io_handle_t dstOutput = getOutputForEffect();
         if (dstOutput == output) {
             mpClientInterface->moveEffects(AUDIO_SESSION_OUTPUT_MIX, srcOutput, dstOutput);
@@ -1079,6 +1082,10 @@ status_t AudioPolicyManagerBase::startOutput(audio_io_handle_t output,
        mIsDirectOutputActive = true;
     }
 
+    if ((outputDesc->mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) &&
+            (outputDesc->mRefCount[AudioSystem::MUSIC] > 0)) {
+        mMusicOffloadSessionId = session;
+    }
     if (outputDesc->mRefCount[stream] == 1) {
         audio_devices_t newDevice = getNewDevice(output, false /*fromCache*/);
 #ifdef BGM_ENABLED
@@ -1947,6 +1954,14 @@ bool AudioPolicyManagerBase::isOffloadSupported(const audio_offload_info_t& offl
         ALOGV("isOffloadSupported: stream_type != MUSIC, returning false");
         return false;
     }
+    // The Music offload output is not free
+    if ((mMusicOffloadOutput) &&
+            (offloadInfo.sessionId != mMusicOffloadSessionId)) {
+        ALOGV("isOffloadSupported: Already offload in progress, "
+                "use non offload decoding");
+        return false;
+    }
+
     if (offloadInfo.is_streaming) {
         ALOGV("isOffloadSupported: is_streaming == true, returning false");
         return false;
@@ -2053,6 +2068,7 @@ AudioPolicyManagerBase::AudioPolicyManagerBase(AudioPolicyClientInterface *clien
     Thread(false),
 #endif //AUDIO_POLICY_TEST
     mPrimaryOutput((audio_io_handle_t)0),
+    mMusicOffloadOutput(false),
     mAvailableOutputDevices(AUDIO_DEVICE_NONE),
     mPhoneState(AudioSystem::MODE_NORMAL),
     mLimitRingtoneVolume(false), mLastVoiceVolume(-1.0f),
@@ -2632,6 +2648,11 @@ void AudioPolicyManagerBase::closeOutput(audio_io_handle_t output)
             delete mOutputs.valueFor(duplicatedOutput);
             mOutputs.removeItem(duplicatedOutput);
         }
+    }
+    if (mMusicOffloadOutput &&
+            (outputDesc->mRefCount[AudioSystem::MUSIC] == 0)) {
+        mMusicOffloadOutput = false;
+        ALOGV("closeOutput: mMusicOffloadOutput = %d", mMusicOffloadOutput);
     }
 
     mIsDirectOutputActive =  false;
