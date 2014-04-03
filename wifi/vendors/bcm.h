@@ -18,6 +18,7 @@
 #ifndef BCM_H_
 # define BCM_H_
 
+#define WIFI_MODULE_43362_OPMODE        "/sys/module/bcm43362/parameters/op_mode"
 #define WIFI_MODULE_43241_OPMODE        "/sys/module/bcm43241/parameters/op_mode"
 #define WIFI_MODULE_4334_OPMODE         "/sys/module/bcm4334/parameters/op_mode"
 #define WIFI_MODULE_4334X_OPMODE        "/sys/module/bcm4334x/parameters/op_mode"
