@@ -3525,16 +3525,15 @@ uint32_t AudioPolicyManagerBase::setOutputDevice(audio_io_handle_t output,
     // do the routing
     param.addInt(String8(AudioParameter::keyRouting), (int)device);
 
-    // For offload use case routing has to be done via primary hal
-    // send the info to primary hal for routing
-    if (outputDesc->mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) {
-        mpClientInterface->setParameters(mPrimaryOutput, param.toString(),
-                                          delayMs);
-    } else {
-        // Append stream flags information for routing
-        param.addInt(String8(AudioParameter::keyStreamFlags), (int)outputDesc->mFlags);
-        mpClientInterface->setParameters(output, param.toString(), delayMs);
-    }
+    // For offload use case:
+    //      Routing has to be done via primary hal so send the routing info to
+    //      primary hal to take into account the new device.
+    // For any other use cases:
+    //      Routing is done through the concerned output.
+    audio_io_handle_t outputToRoute = (outputDesc->mFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) ?
+                mPrimaryOutput : output;
+
+    mpClientInterface->setParameters(outputToRoute, param.toString(), delayMs);
 
     // update stream volumes according to new device, force reevaluation if FM is in use
     applyStreamVolumes(output, device, delayMs, mFmIsOn);
