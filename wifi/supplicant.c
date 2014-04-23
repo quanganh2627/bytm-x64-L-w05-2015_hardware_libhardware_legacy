@@ -28,6 +28,8 @@ static int exit_sockets[2];
 
 static char primary_iface[PROPERTY_VALUE_MAX];
 
+static int is_p2p_supported = 0;
+
 static unsigned char dummy_key[21] = { 0x02, 0x11, 0xbe, 0x33, 0x43, 0x35,
                                        0x68, 0x47, 0x84, 0x99, 0xa9, 0x2b,
                                        0x1c, 0xd3, 0xee, 0xff, 0xf1, 0xe2,
@@ -158,7 +160,7 @@ int update_ctrl_interface(const char *config_file) {
     return 0;
 }
 
-int ensure_config_file_exists(const char *config_file, int p2p_supported)
+int ensure_config_file_exists(const char *config_file)
 {
     char buf[2048];
     int srcfd, destfd;
@@ -186,12 +188,13 @@ int ensure_config_file_exists(const char *config_file, int p2p_supported)
         return -1;
     }
 
-    if (p2p_supported)
+    if (is_p2p_supported)
         srcfd = TEMP_FAILURE_RETRY(open(SUPP_P2P_CONFIG_TEMPLATE, O_RDONLY));
     else
         srcfd = TEMP_FAILURE_RETRY(open(SUPP_CONFIG_TEMPLATE, O_RDONLY));
     if (srcfd < 0) {
-        ALOGE("Cannot open \"%s\": %s", p2p_supported?SUPP_P2P_CONFIG_TEMPLATE:SUPP_CONFIG_TEMPLATE, strerror(errno));
+        ALOGE("Cannot open \"%s\": %s",
+            is_p2p_supported?SUPP_P2P_CONFIG_TEMPLATE:SUPP_CONFIG_TEMPLATE, strerror(errno));
         return -1;
     }
 
@@ -204,7 +207,8 @@ int ensure_config_file_exists(const char *config_file, int p2p_supported)
 
     while ((nread = TEMP_FAILURE_RETRY(read(srcfd, buf, sizeof(buf)))) != 0) {
         if (nread < 0) {
-            ALOGE("Error reading \"%s\": %s", p2p_supported?SUPP_P2P_CONFIG_TEMPLATE:SUPP_CONFIG_TEMPLATE, strerror(errno));
+            ALOGE("Error reading \"%s\": %s",
+                is_p2p_supported?SUPP_P2P_CONFIG_TEMPLATE:SUPP_CONFIG_TEMPLATE, strerror(errno));
             close(srcfd);
             close(destfd);
             unlink(config_file);
@@ -246,17 +250,19 @@ int wifi_start_supplicant(int p2p_supported)
     strcpy(supplicant_prop_name, SUPP_PROP_NAME);
 
     /* Ensure wifi config file is created */
-    if (ensure_config_file_exists(SUPP_CONFIG_FILE, 0) < 0) {
+    is_p2p_supported = 0;
+    if (ensure_config_file_exists(SUPP_CONFIG_FILE) < 0) {
       ALOGE("Failed to create a wifi config file");
       return -1;
     }
 
     if (p2p_supported) {
+        is_p2p_supported = p2p_supported;
         strcpy(supplicant_name, P2P_SUPPLICANT_NAME);
         strcpy(supplicant_prop_name, P2P_PROP_NAME);
 
         /* Ensure p2p config file is created */
-        if (ensure_config_file_exists(P2P_CONFIG_FILE, p2p_supported) < 0) {
+        if (ensure_config_file_exists(P2P_CONFIG_FILE) < 0) {
             ALOGE("Failed to create a p2p config file");
             return -1;
         }
@@ -329,6 +335,7 @@ int wifi_stop_supplicant(int p2p_supported)
     char pidpropval[PROPERTY_VALUE_MAX];
     int ret, pid;
 
+    is_p2p_supported = p2p_supported;
     if (p2p_supported) {
         strcpy(supplicant_name, P2P_SUPPLICANT_NAME);
         strcpy(supplicant_prop_name, P2P_PROP_NAME);
