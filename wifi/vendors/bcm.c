@@ -109,6 +109,8 @@ int bcm_switch_driver_mode(int mode)
         return write_to_file(WIFI_MODULE_4335_OPMODE, mode_str, strlen(mode_str));
     else if (file_exist(WIFI_MODULE_43362_OPMODE))
         return write_to_file(WIFI_MODULE_43362_OPMODE, mode_str, strlen(mode_str));
+    else if (file_exist(WIFI_MODULE_4430F_OPMODE))
+        return write_to_file(WIFI_MODULE_4430F_OPMODE, mode_str, strlen(mode_str));
     else {
         ALOGE("wifi_switch_driver_mode: failed to switch opmode file not found");
         return -1;
