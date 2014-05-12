@@ -34,6 +34,10 @@ static const char BCM_PROP_CHIP[]	= "wlan.bcm.chip";
 #  include "vendors/mtk.h"
 #endif
 
+#ifdef WIFI_GLUE_WITH_MRVL
+#  include "vendors/mrvl.h"
+#endif
+
 enum {
     /* See X Macro trick on Wikipedia */
 #define WIFI_GLUE(Vendor, Ops...) VENDOR_ ## Vendor,
@@ -61,9 +65,9 @@ static int wifi_get_vendor(void)
 {
     char wifi_vendor[PROPERTY_VALUE_MAX];
 
+
     if (!property_get(VENDOR_PROP_NAME, wifi_vendor, NULL)) {
-        ALOGE("wifi_get_vendor: prop %s is not set!",
-              VENDOR_PROP_NAME);
+        ALOGE("wifi_get_vendor: prop %s is not set!", VENDOR_PROP_NAME);
         return -ENODEV;
     }
 
@@ -109,6 +113,8 @@ int wifi_load_driver(void)
     unsigned int vendor = 0;
 
     vendor = wifi_get_vendor();
+
+    ALOGD("Enter wifi_load_driver, vendor=%d\n", (int)vendor); 
 
     if (vendor < MAX_VENDORS && wops[vendor].load_driver)
         return wops[vendor].load_driver();

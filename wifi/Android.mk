@@ -72,6 +72,11 @@ ifneq (,$(filter wifi_rtl%,$(PRODUCTS.$(INTERNAL_PRODUCT).PRODUCT_PACKAGES)))
 	LOCAL_CFLAGS += -DWIFI_GLUE_WITH_RTL
 endif
 
+ifneq (,$(filter marvell88w8777,$(PRODUCTS.$(INTERNAL_PRODUCT).PRODUCT_PACKAGES)))
+	LOCAL_CFLAGS += -DWIFI_GLUE_WITH_MRVL
+	LOCAL_SRC_FILES += wifi/vendors/mrvl.c
+endif
+
 LOCAL_SRC_FILES += wifi/wifi.c wifi/utils.c wifi/supplicant.c
 
 LOCAL_SHARED_LIBRARIES += libnetutils

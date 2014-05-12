@@ -53,3 +53,9 @@ WIFI_GLUE(MTK, mtk_load_driver, mtk_unload_driver, mtk_switch_driver_mode,
 #ifdef WIFI_GLUE_WITH_RTL
 WIFI_GLUE(RTL, NULL, NULL, NULL, NULL, NULL, NULL)
 #endif
+
+#ifdef WIFI_GLUE_WITH_MRVL
+WIFI_GLUE(MRVL, mrvl_load_driver, mrvl_unload_driver, NULL, NULL, NULL, NULL)
+/*WIFI_GLUE(MRVL, NULL, NULL, NULL, NULL, NULL, NULL)*/
+#endif
+
