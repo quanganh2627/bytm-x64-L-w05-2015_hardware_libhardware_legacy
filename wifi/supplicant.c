@@ -47,6 +47,9 @@ static const char IFNAME[]              = "IFNAME=";
 #define IFNAMELEN                      (sizeof(IFNAME) - 1)
 static const char WPA_EVENT_IGNORE[]    = "CTRL-EVENT-IGNORE ";
 
+int hostapd_get_AP_channel_list(char *addr, size_t *addr_len);
+int supplicant_get_AP_channel_list(char *addr, size_t *addr_len);
+
 int do_dhcp_request(int *ipaddr, int *gateway, int *mask,
                     int *dns1, int *dns2, int *server, int *lease) {
     /* For test driver, always report success */
