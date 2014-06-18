@@ -128,14 +128,30 @@ int update_ctrl_interface(const char *config_file) {
     int ret = -1;
     int len = 0;
     char ifc[PROPERTY_VALUE_MAX];
+    char line[16];
     char * buf = NULL;
     struct stat sb;
+    FILE * fs;
 
     /* Try to access config file */
     if (stat(config_file, &sb) != 0) {
         ALOGE("update_ctrl_interface() - stat failed with errno=<%s>", strerror(errno));
         return -1;
     }
+
+    /* Read the file to see if ctrl_interface is already set or not */
+    fs = TEMP_FAILURE_RETRY(fopen(config_file, "r"));
+    if (fs == NULL) {
+        ALOGE("update_ctrl_interface - open <%s> file failed", config_file);
+        return(-1);
+    }
+    while (TEMP_FAILURE_RETRY(fgets(line, sizeof(line), fs)) != NULL) {
+        if (strcmp(line, "ctrl_interface=") == 0) {
+            fclose(fs);
+            return 0;
+        }
+    }
+    fclose(fs);
 
     /* Find out the wifi.interface value to use it as global ctrl_interface for supplicant */
     property_get("wifi.interface", ifc, WIFI_TEST_INTERFACE);
@@ -220,8 +236,9 @@ int ensure_config_file_exists(const char *config_file)
         TEMP_FAILURE_RETRY(write(destfd, buf, nread));
     }
 
-    close(destfd);
-    close(srcfd);
+    /* Make sure files are closed before calling update_ctrl_interface */
+    TEMP_FAILURE_RETRY(close(destfd));
+    TEMP_FAILURE_RETRY(close(srcfd));
 
     /* chmod is needed because open() didn't set permisions properly */
     if (chmod(config_file, 0660) < 0) {
