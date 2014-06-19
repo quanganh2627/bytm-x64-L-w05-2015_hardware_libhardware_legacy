@@ -22,6 +22,7 @@
 #define WIFI_MODULE_4334_OPMODE         "/sys/module/bcm4334/parameters/op_mode"
 #define WIFI_MODULE_4334X_OPMODE        "/sys/module/bcm4334x/parameters/op_mode"
 #define WIFI_MODULE_4335_OPMODE         "/sys/module/bcm4335/parameters/op_mode"
+#define WIFI_MODULE_4354_OPMODE         "/sys/module/bcm4354/parameters/op_mode"
 
 int bcm_load_driver(void);
 int bcm_unload_driver(void);
