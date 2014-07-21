@@ -1,5 +1,6 @@
 /*
 **
+** Copyright (C) 2011-2013 Intel Mobile Communications GmbH
 ** Copyright 2007, The Android Open Source Project
 **
 ** Licensed under the Apache License, Version 2.0 (the "License"); 
@@ -31,6 +32,7 @@
 #include "AudioDumpInterface.h"
 #endif
 
+#define ALOGV ALOGE
 
 // change to 1 to log routing calls
 #define LOG_ROUTING_CALLS 1

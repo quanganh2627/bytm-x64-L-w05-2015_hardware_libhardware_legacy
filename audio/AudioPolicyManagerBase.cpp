@@ -1,4 +1,6 @@
 /*
+ * Copyright (C) 2011-2013 Intel Mobile Communications GmbH
+ * Copyright (C) 2013 Capital Alliance Software LTD (Pekall)
  * Copyright (C) 2009 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -116,6 +118,22 @@ status_t AudioPolicyManagerBase::setDeviceConnectionState(audio_devices_t device
                     mUsbCardAndDevice = String8(device_address, MAX_DEVICE_ADDRESS_LEN);
                     paramStr = mUsbCardAndDevice;
                 }
+                // PEKALL FMR begin:
+                else if (audio_is_fm_device(device)) {
+                    ALOGV("open fm radio");
+                    AudioOutputDescriptor *hwOutputDesc = mOutputs.valueFor(mPrimaryOutput);
+                    hwOutputDesc->mRefCount[AudioSystem::FM] = 1;
+                    mFmOn = true;
+
+                    // FIXME: Just inform the audio flinger that the FMR is on,
+                    // not really invoking setParameters()
+                    AudioParameter param = AudioParameter();
+                    param.addInt(String8(AudioParameter::keyFmOn), mAvailableOutputDevices);
+                    mpClientInterface->setParameters(mPrimaryOutput, param.toString());
+
+                    break;
+                }
+                // PEKALL FMR end
                 // not currently handling multiple simultaneous submixes: ignoring remote submix
                 //   case and address
                 if (!paramStr.isEmpty()) {
@@ -148,6 +166,21 @@ status_t AudioPolicyManagerBase::setDeviceConnectionState(audio_devices_t device
                 // handle USB device disconnection
                 mUsbCardAndDevice = "";
             }
+            // PEKALL FMR begin:
+            else if (audio_is_fm_device(device) &&
+                    (state == AudioSystem::DEVICE_STATE_UNAVAILABLE)) {
+                ALOGV("close FM Radio");
+                AudioOutputDescriptor *hwOutputDesc = mOutputs.valueFor(mPrimaryOutput);
+                hwOutputDesc->mRefCount[AudioSystem::FM] = 0;
+                mFmOn = false;
+
+                // FIXME: Just inform the audio flinger that the FMR is off,
+                // not really invoking setParameters()
+                AudioParameter param = AudioParameter();
+                param.addInt(String8(AudioParameter::keyFmOff), mAvailableOutputDevices);
+                mpClientInterface->setParameters(mPrimaryOutput, param.toString());
+            }
+            // PEKALL FMR end
             // not currently handling multiple simultaneous submixes: ignoring remote submix
             //   case and address
             } break;
@@ -413,7 +446,11 @@ void AudioPolicyManagerBase::setForceUse(AudioSystem::force_use usage, AudioSyst
             config != AudioSystem::FORCE_WIRED_ACCESSORY &&
             config != AudioSystem::FORCE_ANALOG_DOCK &&
             config != AudioSystem::FORCE_DIGITAL_DOCK && config != AudioSystem::FORCE_NONE &&
-            config != AudioSystem::FORCE_NO_BT_A2DP) {
+            config != AudioSystem::FORCE_NO_BT_A2DP
+            // PEKALL FMR begin:
+            && config != AudioSystem::FORCE_SPEAKER
+            // PEKALL FMR end
+            ) {
             ALOGW("setForceUse() invalid config %d for FOR_MEDIA", config);
             return;
         }
@@ -1326,6 +1363,15 @@ bool AudioPolicyManagerBase::isNonOffloadableEffectEnabled()
 
 bool AudioPolicyManagerBase::isStreamActive(int stream, uint32_t inPastMs) const
 {
+    ALOGV("isStreamActive: %d", stream);
+
+    // PEKALL FMR begin:
+    if (stream == AudioSystem::FM) {
+        ALOGV("isStreamActive, fm: %d", mFmOn);
+        return mFmOn;
+    }
+    // PEKALL FMR end
+
     nsecs_t sysTime = systemTime();
     for (size_t i = 0; i < mOutputs.size(); i++) {
         const AudioOutputDescriptor *outputDesc = mOutputs.valueAt(i);
@@ -1534,6 +1580,9 @@ AudioPolicyManagerBase::AudioPolicyManagerBase(AudioPolicyClientInterface *clien
     mTotalEffectsCpuLoad(0), mTotalEffectsMemory(0),
     mA2dpSuspended(false), mHasA2dp(false), mHasUsb(false), mHasRemoteSubmix(false),
     mSpeakerDrcEnabled(false)
+    // PEKALL FMR begin:
+    ,mFmOn(false)
+    // PEKALL FMR end
 {
     mpClientInterface = clientInterface;
 
@@ -2262,6 +2311,9 @@ uint32_t AudioPolicyManagerBase::getStrategyForStream(AudioSystem::stream_type s
 
 audio_devices_t AudioPolicyManagerBase::getDevicesForStream(AudioSystem::stream_type stream) {
     audio_devices_t devices;
+
+    ALOGV("getDevicesForStream %d", stream);
+
     // By checking the range of stream before calling getStrategy, we avoid
     // getStrategy's behavior for invalid streams.  getStrategy would do a ALOGE
     // and then return STRATEGY_MEDIA, but we want to return the empty set.
@@ -2295,6 +2347,9 @@ AudioPolicyManagerBase::routing_strategy AudioPolicyManagerBase::getStrategy(
         // while key clicks are played produces a poor result
     case AudioSystem::TTS:
     case AudioSystem::MUSIC:
+    // PEKALL FMR begin:
+    case AudioSystem::FM:
+    // PEKALL FMR end
         return STRATEGY_MEDIA;
     case AudioSystem::ENFORCED_AUDIBLE:
         return STRATEGY_ENFORCED_AUDIBLE;
@@ -2467,9 +2522,19 @@ audio_devices_t AudioPolicyManagerBase::getDeviceForStrategy(routing_strategy st
             // no sonification on remote submix (e.g. WFD)
             device2 = mAvailableOutputDevices & AUDIO_DEVICE_OUT_REMOTE_SUBMIX;
         }
+
+        // PEKALL FMR begin:
+        if (mForceUse[AudioSystem::FOR_MEDIA] == AudioSystem::FORCE_SPEAKER) {
+            device2 = mAvailableOutputDevices & AudioSystem::DEVICE_OUT_SPEAKER;
+        }
+        // PEKALL FMR end
         if ((device2 == AUDIO_DEVICE_NONE) &&
                 mHasA2dp && (mForceUse[AudioSystem::FOR_MEDIA] != AudioSystem::FORCE_NO_BT_A2DP) &&
-                (getA2dpOutput() != 0) && !mA2dpSuspended) {
+                (getA2dpOutput() != 0) && !mA2dpSuspended
+                // PEKALL FMR begin: Do NOT support to play FM by A2DP
+                && ((mAvailableOutputDevices & AudioSystem::DEVICE_OUT_FM) == 0)
+                // PEKALL FMR end
+                ) {
             device2 = mAvailableOutputDevices & AUDIO_DEVICE_OUT_BLUETOOTH_A2DP;
             if (device2 == AUDIO_DEVICE_NONE) {
                 device2 = mAvailableOutputDevices & AUDIO_DEVICE_OUT_BLUETOOTH_A2DP_HEADPHONES;
@@ -2504,6 +2569,10 @@ audio_devices_t AudioPolicyManagerBase::getDeviceForStrategy(routing_strategy st
         if (device2 == AUDIO_DEVICE_NONE) {
             device2 = mAvailableOutputDevices & AUDIO_DEVICE_OUT_SPEAKER;
         }
+
+        // PEKALL FMR begin:
+        device2 |= mAvailableOutputDevices & AudioSystem::DEVICE_OUT_FM;
+        // PEKALL FMR end
 
         // device is DEVICE_OUT_SPEAKER if we come from case STRATEGY_SONIFICATION or
         // STRATEGY_ENFORCED_AUDIBLE, AUDIO_DEVICE_NONE otherwise
@@ -2545,6 +2614,15 @@ uint32_t AudioPolicyManagerBase::checkDeviceMuteStrategies(AudioOutputDescriptor
 
     uint32_t muteWaitMs = 0;
     audio_devices_t device = outputDesc->device();
+
+    // PEKALL begin: device FMR+speaker/FMR+headset should be same physical
+    // device with speaker/headset. Need not wait for the audio in pcm buffer
+    // to be drained SMS04706367.
+    if (device & AudioSystem::DEVICE_OUT_FM) {
+        device &= ~AudioSystem::DEVICE_OUT_FM;
+    }
+    // PEKALL end
+
     bool shouldMute = outputDesc->isActive() && (AudioSystem::popCount(device) >= 2);
     // temporary mute output if device selection changes to avoid volume bursts due to
     // different per device volumes
@@ -2552,6 +2630,13 @@ uint32_t AudioPolicyManagerBase::checkDeviceMuteStrategies(AudioOutputDescriptor
 
     for (size_t i = 0; i < NUM_STRATEGIES; i++) {
         audio_devices_t curDevice = getDeviceForStrategy((routing_strategy)i, false /*fromCache*/);
+        // PEKALL begin: device FMR+speaker/FMR+headset should be same physical
+        // device with speaker/headset. Need not wait for the audio in pcm buffer
+        // to be drained SMS04706367.
+        if (curDevice & AudioSystem::DEVICE_OUT_FM) {
+            curDevice &= ~AudioSystem::DEVICE_OUT_FM;
+        }
+        // PEKALL end
         bool mute = shouldMute && (curDevice & device) && (curDevice != device);
         bool doMute = false;
 
@@ -2743,6 +2828,13 @@ audio_devices_t AudioPolicyManagerBase::getDeviceForInputSource(int inputSource)
             device = AUDIO_DEVICE_IN_REMOTE_SUBMIX;
         }
         break;
+    // PEKALL FMR begin:
+    case AUDIO_SOURCE_FM_RX:
+        if (mAvailableInputDevices & AUDIO_DEVICE_IN_FM_RX) {
+            device = AUDIO_DEVICE_IN_FM_RX;
+        }
+        break;
+    // PEKALL FMR end
     default:
         ALOGW("getDeviceForInputSource() invalid input source %d", inputSource);
         break;
@@ -2776,6 +2868,12 @@ audio_io_handle_t AudioPolicyManagerBase::getActiveInput(bool ignoreVirtualInput
 
 audio_devices_t AudioPolicyManagerBase::getDeviceForVolume(audio_devices_t device)
 {
+    // PEKALL FMR begin:
+    if(audio_is_fm_device(device)) {
+        return device;
+    }
+    // PEKALL FMR end
+
     if (device == AUDIO_DEVICE_NONE) {
         // this happens when forcing a route update and no track is active on an output.
         // In this case the returned category is not important.
@@ -3012,6 +3110,15 @@ float AudioPolicyManagerBase::computeVolume(int stream,
     AudioOutputDescriptor *outputDesc = mOutputs.valueFor(output);
     StreamDescriptor &streamDesc = mStreams[stream];
 
+    // PEKALL FMR begin:
+    // Use linear volume for FM
+    if (stream == AudioSystem::FM) {
+        volume = (float)(index - streamDesc.mIndexMin) /
+            (float)(streamDesc.mIndexMax - streamDesc.mIndexMin);
+        return volume;
+    }
+    // PEKALL FMR end
+
     if (device == AUDIO_DEVICE_NONE) {
         device = outputDesc->device();
     }
@@ -3089,6 +3196,20 @@ status_t AudioPolicyManagerBase::checkAndSetVolume(int stream,
              stream, mForceUse[AudioSystem::FOR_COMMUNICATION]);
         return INVALID_OPERATION;
     }
+
+    // PEKALL FMR begin:
+    if (stream == AudioSystem::FM) {
+        float fmVolume = -1.0;
+        fmVolume = computeVolume(stream, index, output, device);
+        ALOGV("checkAndSetVolume() fm stream %d index %d, output %d, device %d",
+                stream, index, output, device);
+        if (fmVolume >= 0 && output == mPrimaryOutput) {
+            ALOGV("fm volume: %f", fmVolume);
+            mpClientInterface->setFmVolume(fmVolume, delayMs);
+        }
+        return NO_ERROR;
+    }
+    // PEKALL FMR end
 
     float volume = computeVolume(stream, index, output, device);
     // We actually change the volume if:
@@ -3682,6 +3803,10 @@ const struct StringToEnum sDeviceNameToEnumTable[] = {
     STRING_TO_ENUM(AUDIO_DEVICE_IN_ANLG_DOCK_HEADSET),
     STRING_TO_ENUM(AUDIO_DEVICE_IN_DGTL_DOCK_HEADSET),
     STRING_TO_ENUM(AUDIO_DEVICE_IN_USB_ACCESSORY),
+    // PEKALL FMR begin:
+    STRING_TO_ENUM(AUDIO_DEVICE_OUT_FM),
+    STRING_TO_ENUM(AUDIO_DEVICE_IN_FM_RX),
+    // PEKALL FMR end
 };
 
 const struct StringToEnum sFlagNameToEnumTable[] = {

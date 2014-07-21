@@ -1,4 +1,6 @@
 /*
+ * Copyright (C) 2011-2013 Intel Mobile Communications GmbH
+ * Copyright (C) 2013 Capital Alliance Software LTD (Pekall)
  * Copyright (C) 2011 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -25,6 +27,8 @@
 
 #include <hardware_legacy/AudioHardwareInterface.h>
 #include <hardware_legacy/AudioSystemLegacy.h>
+
+#define ALOGV ALOGE
 
 namespace android_audio_legacy {
 
@@ -428,6 +432,14 @@ static int adev_set_voice_volume(struct audio_hw_device *dev, float volume)
     return ladev->hwif->setVoiceVolume(volume);
 }
 
+// PEKALL FMR begin:
+static int adev_set_fm_volume(struct audio_hw_device *dev, float volume)
+{
+    struct legacy_audio_device *ladev = to_ladev(dev);
+    return ladev->hwif->setFmVolume(volume);
+}
+// PEKALL FMR end
+
 static int adev_set_master_volume(struct audio_hw_device *dev, float volume)
 {
     struct legacy_audio_device *ladev = to_ladev(dev);
@@ -652,6 +664,9 @@ static int legacy_adev_open(const hw_module_t* module, const char* name,
 
     ladev->device.init_check = adev_init_check;
     ladev->device.set_voice_volume = adev_set_voice_volume;
+#ifdef HAVE_FM_RADIO
+    ladev->device.set_fm_volume = adev_set_fm_volume;
+#endif
     ladev->device.set_master_volume = adev_set_master_volume;
     ladev->device.get_master_volume = adev_get_master_volume;
     ladev->device.set_mode = adev_set_mode;

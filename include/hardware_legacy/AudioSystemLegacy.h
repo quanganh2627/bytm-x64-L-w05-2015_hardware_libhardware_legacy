@@ -1,4 +1,6 @@
 /*
+ * Copyright (C) 2011-2013 Intel Mobile Communications GmbH
+ * Copyright (C) 2013 Capital Alliance Software LTD (Pekall)
  * Copyright (C) 2008 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -61,8 +63,16 @@ enum audio_source {
     AUDIO_SOURCE_CAMCORDER = 5,
     AUDIO_SOURCE_VOICE_RECOGNITION = 6,
     AUDIO_SOURCE_VOICE_COMMUNICATION = 7,
-    AUDIO_SOURCE_MAX = AUDIO_SOURCE_VOICE_COMMUNICATION,
+    AUDIO_SOURCE_REMOTE_SUBMIX       = 8, /* Source for the mix to be presented remotely.      */
+                                          /* An example of remote presentation is Wifi Display */
+                                          /*  where a dongle attached to a TV can be used to   */
+                                          /*  play the mix captured by this audio source.      */
+    // PEKALL FMR begin:
+    AUDIO_SOURCE_FM_RX = 9, // FM recording
+    AUDIO_SOURCE_MAX = AUDIO_SOURCE_FM_RX,
+    // PEKALL FMR end
 
+    // AUDIO_SOURCE_MAX = AUDIO_SOURCE_VOICE_COMMUNICATION,
     AUDIO_SOURCE_LIST_END  // must be last - used to validate audio source type
 };
 
@@ -81,6 +91,9 @@ public:
         ENFORCED_AUDIBLE = 7, // Sounds that cannot be muted by user and must be routed to speaker
         DTMF             = 8,
         TTS              = 9,
+        // PEKALL FMR begin:
+        FM               = 10,
+        // PEKALL FMR end
         NUM_STREAM_TYPES
     };
 
@@ -244,12 +257,22 @@ public:
         DEVICE_OUT_ANLG_DOCK_HEADSET = 0x800,
         DEVICE_OUT_DGTL_DOCK_HEADSET = 0x1000,
         DEVICE_OUT_DEFAULT = 0x8000,
+        // PEKALL FMR begin:
+        DEVICE_OUT_FM = 0x10000,
+        DEVICE_OUT_FM_HEADSET = (DEVICE_OUT_FM | DEVICE_OUT_WIRED_HEADSET),
+        DEVICE_OUT_FM_HEADPHONE = (DEVICE_OUT_FM | DEVICE_OUT_WIRED_HEADPHONE),
+        DEVICE_OUT_FM_SPEAKER = (DEVICE_OUT_FM | DEVICE_OUT_SPEAKER),
+        // PEKALL FMR end
         DEVICE_OUT_ALL = (DEVICE_OUT_EARPIECE | DEVICE_OUT_SPEAKER | DEVICE_OUT_WIRED_HEADSET |
                 DEVICE_OUT_WIRED_HEADPHONE | DEVICE_OUT_BLUETOOTH_SCO | DEVICE_OUT_BLUETOOTH_SCO_HEADSET |
                 DEVICE_OUT_BLUETOOTH_SCO_CARKIT | DEVICE_OUT_BLUETOOTH_A2DP | DEVICE_OUT_BLUETOOTH_A2DP_HEADPHONES |
                 DEVICE_OUT_BLUETOOTH_A2DP_SPEAKER | DEVICE_OUT_AUX_DIGITAL |
                 DEVICE_OUT_ANLG_DOCK_HEADSET | DEVICE_OUT_DGTL_DOCK_HEADSET |
-                DEVICE_OUT_DEFAULT),
+                DEVICE_OUT_DEFAULT
+                // PEKALL FMR begin:
+                | DEVICE_OUT_FM
+                // PEKALL FMR end
+                ),
         DEVICE_OUT_ALL_A2DP = (DEVICE_OUT_BLUETOOTH_A2DP | DEVICE_OUT_BLUETOOTH_A2DP_HEADPHONES |
                 DEVICE_OUT_BLUETOOTH_A2DP_SPEAKER),
 
@@ -262,11 +285,18 @@ public:
         DEVICE_IN_AUX_DIGITAL = 0x200000,
         DEVICE_IN_VOICE_CALL = 0x400000,
         DEVICE_IN_BACK_MIC = 0x800000,
+        // PEKALL FMR begin:
+        DEVICE_IN_FM_RX = 0x1000000,
+        // PEKALL FMR end
         DEVICE_IN_DEFAULT = 0x80000000,
 
         DEVICE_IN_ALL = (DEVICE_IN_COMMUNICATION | DEVICE_IN_AMBIENT | DEVICE_IN_BUILTIN_MIC |
                 DEVICE_IN_BLUETOOTH_SCO_HEADSET | DEVICE_IN_WIRED_HEADSET | DEVICE_IN_AUX_DIGITAL |
-                DEVICE_IN_VOICE_CALL | DEVICE_IN_BACK_MIC | DEVICE_IN_DEFAULT)
+                DEVICE_IN_VOICE_CALL | DEVICE_IN_BACK_MIC | DEVICE_IN_DEFAULT
+                // PEKALL FMR begin:
+                | DEVICE_IN_FM_RX
+                // PEKALL FMR end
+                )
     };
 
     // request to open a direct output with getOutput() (by opposition to sharing an output with other AudioTracks)
@@ -336,6 +366,11 @@ public:
     static bool isA2dpDevice(audio_devices device) {
         return audio_is_a2dp_device((audio_devices_t)device);
     }
+    // PEKALL FMR begin:
+    static bool isFmDevice(audio_devices device) {
+        return audio_is_fm_device((audio_devices_t)device);
+    }
+    // PEKALL FMR end
     static bool isBluetoothScoDevice(audio_devices device) {
         return audio_is_bluetooth_sco_device((audio_devices_t)device);
     }

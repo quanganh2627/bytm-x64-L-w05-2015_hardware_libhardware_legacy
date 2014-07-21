@@ -1,4 +1,6 @@
 /*
+ * Copyright (C) 2011-2013 Intel Mobile Communications GmbH
+ * Copyright (C) 2013 Capital Alliance Software LTD (Pekall)
  * Copyright (C) 2009 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -576,6 +578,13 @@ protected:
         uint32_t        mTestChannels;
         uint32_t        mTestLatencyMs;
 #endif //AUDIO_POLICY_TEST
+
+        // PEKALL FMR begin:
+        bool mFmOn;
+
+        // TODO: investigate whether need this mask
+        int mMaskFMRadio;
+        // PEKALL FMR end
 
 private:
         static float volIndexToAmpl(audio_devices_t device, const StreamDescriptor& streamDesc,

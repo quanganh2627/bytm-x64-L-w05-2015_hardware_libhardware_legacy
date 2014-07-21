@@ -1,4 +1,6 @@
 /*
+ * Copyright (C) 2011-2013 Intel Mobile Communications GmbH
+ * Copyright (C) 2013 Capital Alliance Software LTD (Pekall)
  * Copyright (C) 2008 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -208,6 +210,14 @@ status_t A2dpAudioInterface::setVoiceVolume(float v)
 {
     return mHardwareInterface->setVoiceVolume(v);
 }
+
+// PEKALL FMR begin:
+status_t A2dpAudioInterface::setFmVolume(float v)
+{
+    ALOGV("setFmVolume: %f", v);
+    return mHardwareInterface->setFmVolume(v);
+}
+// PEKALL FMR end
 
 status_t A2dpAudioInterface::setMasterVolume(float v)
 {

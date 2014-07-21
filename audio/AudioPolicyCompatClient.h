@@ -1,4 +1,6 @@
 /*
+ * Copyright (C) 2011-2013 Intel Mobile Communications GmbH
+ * Copyright (C) 2013 Capital Alliance Software LTD (Pekall)
  * Copyright (C) 2011 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -72,7 +74,9 @@ public:
     virtual status_t startTone(ToneGenerator::tone_type tone, AudioSystem::stream_type stream);
     virtual status_t stopTone();
     virtual status_t setVoiceVolume(float volume, int delayMs = 0);
-
+    // PEKALL FMR begin:
+    virtual status_t setFmVolume(float volume, int delayMs = 0);
+    // PEKALL FMR end
 private:
     struct audio_policy_service_ops* mServiceOps;
     void*                            mService;

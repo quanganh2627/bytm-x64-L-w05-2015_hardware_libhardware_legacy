@@ -1,5 +1,7 @@
 /*
 **
+** Copyright (C) 2011-2013 Intel Mobile Communications GmbH
+** Copyright (C) 2013 Capital Alliance Software LTD (Pekall)
 ** Copyright 2007, The Android Open Source Project
 **
 ** Licensed under the Apache License, Version 2.0 (the "License");
@@ -143,6 +145,13 @@ status_t AudioHardwareGeneric::setVoiceVolume(float v)
     // Implement: set voice volume
     return NO_ERROR;
 }
+
+// PEKALL FMR begin:
+status_t AudioHardwareGeneric::setFmVolume(float v)
+{
+    return NO_ERROR;
+}
+// PEKALL FMR end
 
 status_t AudioHardwareGeneric::setMasterVolume(float v)
 {
