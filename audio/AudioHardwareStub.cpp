@@ -1,5 +1,7 @@
 /* //device/servers/AudioFlinger/AudioHardwareStub.cpp
 **
+** Copyright (C) 2011-2013 Intel Mobile Communications GmbH
+** Copyright (C) 2013 Capital Alliance Software LTD (Pekall)
 ** Copyright 2007, The Android Open Source Project
 **
 ** Licensed under the Apache License, Version 2.0 (the "License");
@@ -90,6 +92,13 @@ status_t AudioHardwareStub::setVoiceVolume(float volume)
 {
     return NO_ERROR;
 }
+
+// PEKALL FMR begin:
+status_t AudioHardwareStub::setFmVolume(float volume)
+{
+    return NO_ERROR;
+}
+// PEKALL FMR end
 
 status_t AudioHardwareStub::setMasterVolume(float volume)
 {

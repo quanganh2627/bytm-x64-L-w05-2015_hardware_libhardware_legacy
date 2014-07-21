@@ -1,4 +1,6 @@
 /*
+ * Copyright (C) 2011-2013 Intel Mobile Communications GmbH
+ * Copyright (C) 2013 Capital Alliance Software LTD (Pekall)
  * Copyright (C) 2007 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -210,6 +212,11 @@ public:
 
     /** set the audio volume of a voice call. Range is between 0.0 and 1.0 */
     virtual status_t    setVoiceVolume(float volume) = 0;
+
+    // PEKALL FMR begin:
+    /** set the audio volume of fm radio. Range is between 0.0 and 1.0 */
+    virtual status_t    setFmVolume(float volume) {return NO_ERROR;}
+    // PEKALL FMR end
 
     /**
      * set the audio volume for all audio activities other than voice call.

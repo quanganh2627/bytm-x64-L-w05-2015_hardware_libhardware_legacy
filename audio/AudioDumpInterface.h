@@ -1,5 +1,7 @@
 /* //device/servers/AudioFlinger/AudioDumpInterface.h
 **
+** Copyright (C) 2011-2013 Intel Mobile Communications GmbH
+** Copyright (C) 2013 Capital Alliance Software LTD (Pekall)
 ** Copyright 2008, The Android Open Source Project
 **
 ** Licensed under the Apache License, Version 2.0 (the "License");
@@ -155,6 +157,9 @@ public:
     virtual status_t    dump(int fd, const Vector<String16>& args) { return mFinalInterface->dumpState(fd, args); }
 
             String8     fileName() const { return mFileName; }
+    // PEKALL FMR begin:
+    virtual status_t    setFmVolume(float volume) {return mFinalInterface->setFmVolume(volume);}
+    // PEKALL FMR end
 protected:
 
     AudioHardwareInterface          *mFinalInterface;
