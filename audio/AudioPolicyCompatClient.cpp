@@ -1,4 +1,6 @@
 /*
+ * Copyright (C) 2011-2013 Intel Mobile Communications GmbH
+ * Copyright (C) 2013 Capital Alliance Software LTD (Pekall)
  * Copyright (C) 2011 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -143,5 +145,12 @@ status_t AudioPolicyCompatClient::setVoiceVolume(float volume, int delayMs)
 {
     return mServiceOps->set_voice_volume(mService, volume, delayMs);
 }
+
+// PEKALL FMR begin:
+status_t AudioPolicyCompatClient::setFmVolume(float volume, int delayMs)
+{
+    return mServiceOps->set_fm_volume(mService, volume, delayMs);
+}
+// PEKALL FMR end
 
 }; // namespace android_audio_legacy

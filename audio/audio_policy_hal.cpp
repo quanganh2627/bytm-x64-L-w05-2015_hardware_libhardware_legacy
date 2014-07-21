@@ -1,4 +1,5 @@
 /*
+ * Copyright (C) 2011-2013 Intel Mobile Communications GmbH
  * Copyright (C) 2011 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");

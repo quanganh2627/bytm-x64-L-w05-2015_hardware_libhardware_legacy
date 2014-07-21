@@ -1,4 +1,6 @@
 /*
+ * Copyright (C) 2011-2013 Intel Mobile Communications GmbH
+ * Copyright (C) 2013 Capital Alliance Software LTD (Pekall)
  * Copyright (C) 2008 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -69,6 +71,10 @@ public:
                                 AudioSystem::audio_in_acoustics acoustics);
     virtual    void        closeInputStream(AudioStreamIn* in);
 //    static AudioHardwareInterface* createA2dpInterface();
+
+    // PEKALL FMR begin:
+    virtual status_t    setFmVolume(float volume);
+    // PEKALL FMR end
 
 protected:
     virtual status_t    dump(int fd, const Vector<String16>& args);

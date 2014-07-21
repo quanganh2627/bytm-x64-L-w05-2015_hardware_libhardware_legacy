@@ -1,5 +1,7 @@
 /* //device/servers/AudioFlinger/AudioHardwareStub.h
 **
+** Copyright (C) 2011-2013 Intel Mobile Communications GmbH
+** Copyright (C) 2013 Capital Alliance Software LTD (Pekall)
 ** Copyright 2007, The Android Open Source Project
 **
 ** Licensed under the Apache License, Version 2.0 (the "License");
@@ -69,6 +71,9 @@ public:
     virtual             ~AudioHardwareStub();
     virtual status_t    initCheck();
     virtual status_t    setVoiceVolume(float volume);
+    // PEKALL FMR begin:
+    virtual status_t    setFmVolume(float volume);
+    // PEKALL FMR end
     virtual status_t    setMasterVolume(float volume);
 
     // mic mute
