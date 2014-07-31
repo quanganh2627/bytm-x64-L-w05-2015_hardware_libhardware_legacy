@@ -59,6 +59,25 @@ int file_exist(char *filename)
     return (stat(filename, &buffer) == 0);
 }
 
+struct dirent * dir_prefix_exist(char *dirname, char * prefix)
+{
+    DIR           *d;
+    struct dirent *dir = NULL;
+
+    d = opendir(dirname);
+
+    if (d) {
+        while ((dir = readdir(d)) != NULL)
+        {
+	    if (!strncmp(prefix, dir->d_name, sizeof(prefix)))
+                break;
+        }
+        closedir(d);
+    }
+
+    return dir;
+}
+
 int write_to_file(const char *path, const char *data, size_t len)
 {
     int ret = 0;

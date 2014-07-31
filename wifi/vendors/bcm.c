@@ -74,6 +74,9 @@ int bcm_switch_driver_mode(int mode)
 {
     char mode_str[8];
     char bcm_prop_chip[PROPERTY_VALUE_MAX]="";
+    char * wifi_module_opmode;
+    struct dirent *dir;
+    int ret = -1;
 
     /**
      * BIT(0), BIT(1),.. come from dhd.h in the driver code, and we need to
@@ -99,22 +102,17 @@ int bcm_switch_driver_mode(int mode)
     }
 
     ALOGE("wifi_switch_driver_mode: switching FW opmode");
-    if (file_exist(WIFI_MODULE_43241_OPMODE))
-        return write_to_file(WIFI_MODULE_43241_OPMODE, mode_str, strlen(mode_str));
-    else if (file_exist(WIFI_MODULE_4334_OPMODE))
-        return write_to_file(WIFI_MODULE_4334_OPMODE, mode_str, strlen(mode_str));
-    else if (file_exist(WIFI_MODULE_4334X_OPMODE))
-        return write_to_file(WIFI_MODULE_4334X_OPMODE, mode_str, strlen(mode_str));
-    else if (file_exist(WIFI_MODULE_4335_OPMODE))
-        return write_to_file(WIFI_MODULE_4335_OPMODE, mode_str, strlen(mode_str));
-    else if (file_exist(WIFI_MODULE_43362_OPMODE))
-        return write_to_file(WIFI_MODULE_43362_OPMODE, mode_str, strlen(mode_str));
-    else if (file_exist(WIFI_MODULE_4430F_OPMODE))
-        return write_to_file(WIFI_MODULE_4430F_OPMODE, mode_str, strlen(mode_str));
-    else {
+    dir = dir_prefix_exist(SYS_MODULE, WIFI_PREFIX);
+    if (dir) {
+        if(asprintf(&wifi_module_opmode, "%s%s%s", SYS_MODULE, dir->d_name,
+                PARAM_OPMODE) > 0) {
+            ret = write_to_file(wifi_module_opmode, mode_str, strlen(mode_str));
+            free(wifi_module_opmode);
+        }
+    }else
         ALOGE("wifi_switch_driver_mode: failed to switch opmode file not found");
-        return -1;
-    }
+
+    return ret;
 }
 
 int bcm_change_fw_path(const char *fwpath)

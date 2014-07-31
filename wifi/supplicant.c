@@ -28,6 +28,8 @@ static int exit_sockets[2];
 
 static char primary_iface[PROPERTY_VALUE_MAX];
 
+static int is_p2p_supported = 0;
+
 static unsigned char dummy_key[21] = { 0x02, 0x11, 0xbe, 0x33, 0x43, 0x35,
                                        0x68, 0x47, 0x84, 0x99, 0xa9, 0x2b,
                                        0x1c, 0xd3, 0xee, 0xff, 0xf1, 0xe2,
@@ -44,6 +46,9 @@ static const char MODULE_FILE[]         = "/proc/modules";
 static const char IFNAME[]              = "IFNAME=";
 #define IFNAMELEN                      (sizeof(IFNAME) - 1)
 static const char WPA_EVENT_IGNORE[]    = "CTRL-EVENT-IGNORE ";
+
+int hostapd_get_AP_channel_list(char *addr, size_t *addr_len);
+int supplicant_get_AP_channel_list(char *addr, size_t *addr_len);
 
 int do_dhcp_request(int *ipaddr, int *gateway, int *mask,
                     int *dns1, int *dns2, int *server, int *lease) {
@@ -123,14 +128,30 @@ int update_ctrl_interface(const char *config_file) {
     int ret = -1;
     int len = 0;
     char ifc[PROPERTY_VALUE_MAX];
+    char line[16];
     char * buf = NULL;
     struct stat sb;
+    FILE * fs;
 
     /* Try to access config file */
     if (stat(config_file, &sb) != 0) {
         ALOGE("update_ctrl_interface() - stat failed with errno=<%s>", strerror(errno));
         return -1;
     }
+
+    /* Read the file to see if ctrl_interface is already set or not */
+    fs = TEMP_FAILURE_RETRY(fopen(config_file, "r"));
+    if (fs == NULL) {
+        ALOGE("update_ctrl_interface - open <%s> file failed", config_file);
+        return(-1);
+    }
+    while (TEMP_FAILURE_RETRY(fgets(line, sizeof(line), fs)) != NULL) {
+        if (strcmp(line, "ctrl_interface=") == 0) {
+            fclose(fs);
+            return 0;
+        }
+    }
+    fclose(fs);
 
     /* Find out the wifi.interface value to use it as global ctrl_interface for supplicant */
     property_get("wifi.interface", ifc, WIFI_TEST_INTERFACE);
@@ -158,7 +179,7 @@ int update_ctrl_interface(const char *config_file) {
     return 0;
 }
 
-int ensure_config_file_exists(const char *config_file, int p2p_supported)
+int ensure_config_file_exists(const char *config_file)
 {
     char buf[2048];
     int srcfd, destfd;
@@ -186,12 +207,13 @@ int ensure_config_file_exists(const char *config_file, int p2p_supported)
         return -1;
     }
 
-    if (p2p_supported)
+    if (is_p2p_supported)
         srcfd = TEMP_FAILURE_RETRY(open(SUPP_P2P_CONFIG_TEMPLATE, O_RDONLY));
     else
         srcfd = TEMP_FAILURE_RETRY(open(SUPP_CONFIG_TEMPLATE, O_RDONLY));
     if (srcfd < 0) {
-        ALOGE("Cannot open \"%s\": %s", p2p_supported?SUPP_P2P_CONFIG_TEMPLATE:SUPP_CONFIG_TEMPLATE, strerror(errno));
+        ALOGE("Cannot open \"%s\": %s",
+            is_p2p_supported?SUPP_P2P_CONFIG_TEMPLATE:SUPP_CONFIG_TEMPLATE, strerror(errno));
         return -1;
     }
 
@@ -204,7 +226,8 @@ int ensure_config_file_exists(const char *config_file, int p2p_supported)
 
     while ((nread = TEMP_FAILURE_RETRY(read(srcfd, buf, sizeof(buf)))) != 0) {
         if (nread < 0) {
-            ALOGE("Error reading \"%s\": %s", p2p_supported?SUPP_P2P_CONFIG_TEMPLATE:SUPP_CONFIG_TEMPLATE, strerror(errno));
+            ALOGE("Error reading \"%s\": %s",
+                is_p2p_supported?SUPP_P2P_CONFIG_TEMPLATE:SUPP_CONFIG_TEMPLATE, strerror(errno));
             close(srcfd);
             close(destfd);
             unlink(config_file);
@@ -213,8 +236,9 @@ int ensure_config_file_exists(const char *config_file, int p2p_supported)
         TEMP_FAILURE_RETRY(write(destfd, buf, nread));
     }
 
-    close(destfd);
-    close(srcfd);
+    /* Make sure files are closed before calling update_ctrl_interface */
+    TEMP_FAILURE_RETRY(close(destfd));
+    TEMP_FAILURE_RETRY(close(srcfd));
 
     /* chmod is needed because open() didn't set permisions properly */
     if (chmod(config_file, 0660) < 0) {
@@ -246,17 +270,19 @@ int wifi_start_supplicant(int p2p_supported)
     strcpy(supplicant_prop_name, SUPP_PROP_NAME);
 
     /* Ensure wifi config file is created */
-    if (ensure_config_file_exists(SUPP_CONFIG_FILE, 0) < 0) {
+    is_p2p_supported = 0;
+    if (ensure_config_file_exists(SUPP_CONFIG_FILE) < 0) {
       ALOGE("Failed to create a wifi config file");
       return -1;
     }
 
     if (p2p_supported) {
+        is_p2p_supported = p2p_supported;
         strcpy(supplicant_name, P2P_SUPPLICANT_NAME);
         strcpy(supplicant_prop_name, P2P_PROP_NAME);
 
         /* Ensure p2p config file is created */
-        if (ensure_config_file_exists(P2P_CONFIG_FILE, p2p_supported) < 0) {
+        if (ensure_config_file_exists(P2P_CONFIG_FILE) < 0) {
             ALOGE("Failed to create a p2p config file");
             return -1;
         }
@@ -329,6 +355,7 @@ int wifi_stop_supplicant(int p2p_supported)
     char pidpropval[PROPERTY_VALUE_MAX];
     int ret, pid;
 
+    is_p2p_supported = p2p_supported;
     if (p2p_supported) {
         strcpy(supplicant_name, P2P_SUPPLICANT_NAME);
         strcpy(supplicant_prop_name, P2P_PROP_NAME);
@@ -423,13 +450,18 @@ int wifi_connect_on_socket_path(const char *path)
 int wifi_connect_to_supplicant()
 {
     static char path[PATH_MAX];
+    int ret;
 
     if (access(IFACE_DIR, F_OK) == 0) {
         snprintf(path, sizeof(path), "%s/%s", IFACE_DIR, primary_iface);
     } else {
         snprintf(path, sizeof(path), "@android:wpa_%s", primary_iface);
     }
-    return wifi_connect_on_socket_path(path);
+    LOGD("Open connection to supplicant\n");
+    pthread_mutex_lock(&suppl_mutex);
+    ret = wifi_connect_on_socket_path(path);
+    pthread_mutex_unlock(&suppl_mutex);
+    return ret;
 }
 
 
@@ -770,7 +802,6 @@ void wifi_close_supplicant_connection()
     pthread_mutex_lock(&suppl_mutex);
 
     wifi_close_sockets();
-        pthread_mutex_unlock(&suppl_mutex);
 
     while (count-- > 0) {
         if (property_get(supplicant_prop_name, supp_status, NULL)) {
@@ -787,4 +818,57 @@ void wifi_close_supplicant_connection()
 int wifi_command(const char *command, char *reply, size_t *reply_len)
 {
     return wifi_send_command(command, reply, reply_len);
+}
+
+int wifi_configure_AP_RT_coex(const char *cmd, char *addr, size_t *addr_len)
+{
+    char  *pos, reply[1024];
+    size_t reply_len;
+    int ret;
+    int rs = 0;
+
+    if (!addr_len) {
+        ALOGE("addr_len is null\n");
+        return -1;
+    }
+
+    if (ctrl_conn_hostapd == NULL) {
+        ALOGV("Not connected to hostapd, trying to connect\n");
+
+        if (wifi_connect_to_hostapd() == -1) {
+            ALOGV("Not connected to hostapd - \"%s\" command dropped.\n", cmd);
+            return -1;
+        }
+    }
+
+    reply_len = sizeof(reply) - 1;
+    log_cmd(cmd);
+
+    ret = wpa_ctrl_request(ctrl_conn_hostapd, cmd, strlen(cmd), reply, &reply_len, NULL);
+    if (ret == -2) {
+        ALOGD("'%s' command timed out.\n", cmd);
+        /* unblocks the monitor receive socket for termination */
+        TEMP_FAILURE_RETRY(write(exit_sockets[0], "T", 1));
+        rs = -2;
+        goto close_sock;
+    } else if (ret < 0 || strncmp(reply, "FAIL", 4) == 0) {
+        LOGI("REPLY: FAIL\n");
+        rs = -1;
+        goto close_sock;
+    }
+
+    log_reply(reply, &reply_len);
+
+    reply[reply_len] = '\0';
+
+    pos = reply;
+    while (*pos != '\0' && *pos != '\n')
+        pos++;
+    *pos = '\0';
+    strlcpy(addr, reply, *addr_len);
+
+ close_sock:
+    wifi_close_hostapd_connection();
+
+    return rs;
 }

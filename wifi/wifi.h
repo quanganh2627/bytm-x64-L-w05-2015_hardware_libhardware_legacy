@@ -86,6 +86,7 @@ int insmod(const char *filename, const char *args);
 int rmmod(const char *modname);
 int write_to_file(const char *path, const char *data, size_t len);
 int file_exist(char *filename);
+struct dirent * dir_prefix_exist(char *dirname, char * prefix);
 void log_cmd(const char *cmd);
 void log_reply(char *reply, size_t *reply_len);
 
