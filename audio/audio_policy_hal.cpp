@@ -330,6 +330,16 @@ static bool ap_is_offload_supported(const struct audio_policy *pol,
     const struct legacy_audio_policy *lap = to_clap(pol);
     return lap->apm->isOffloadSupported(*info);
 }
+#ifdef DRD_FMR
+// INTEL FMR begin:
+static int ap_set_parameters(struct audio_policy *pol,
+                                  const char *keyValuePairs)
+{
+    const struct legacy_audio_policy *lap = to_clap(pol);
+    return lap->apm->setParameters(String8(keyValuePairs));
+}
+// INTEL FMR end
+#endif /* DRD_FMR */
 
 static int create_legacy_ap(const struct audio_policy_device *device,
                             struct audio_policy_service_ops *aps_ops,
@@ -379,7 +389,9 @@ static int create_legacy_ap(const struct audio_policy_device *device,
     lap->policy.is_source_active = ap_is_source_active;
     lap->policy.dump = ap_dump;
     lap->policy.is_offload_supported = ap_is_offload_supported;
-
+#ifdef DRD_FMR
+    lap->policy.set_parameters = ap_set_parameters;
+#endif /* DRD_FMR */
     lap->service = service;
     lap->aps_ops = aps_ops;
     lap->service_client =

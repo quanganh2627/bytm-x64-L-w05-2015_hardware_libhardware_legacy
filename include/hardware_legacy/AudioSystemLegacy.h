@@ -330,6 +330,11 @@ public:
         FOR_RECORD,
         FOR_DOCK,
         FOR_SYSTEM,
+#ifdef DRD_FMR
+        // INTEL FMR begin:
+        FOR_FM_RADIO,
+        // INTEL FMR end
+#endif /* DRD_FMR */
         NUM_FORCE_USE
     };
 
