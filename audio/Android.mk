@@ -58,6 +58,10 @@ ifdef DOLBY_DAP
     endif
 endif #DOLBY_END
 
+ifeq ($(ENABLE_HDMI_VOLUME_ADJ),true)
+	LOCAL_CFLAGS += -DHDMI_VOLUME_ADJ
+endif
+
 LOCAL_STATIC_LIBRARIES := libmedia_helper
 LOCAL_MODULE := libaudiopolicy_legacy
 LOCAL_MODULE_TAGS := optional
