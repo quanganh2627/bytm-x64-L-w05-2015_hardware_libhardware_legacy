@@ -159,6 +159,7 @@ protected:
             STRATEGY_SONIFICATION_RESPECTFUL,
             STRATEGY_DTMF,
             STRATEGY_ENFORCED_AUDIBLE,
+            STRATEGY_FM,
             NUM_STRATEGIES
         };
 

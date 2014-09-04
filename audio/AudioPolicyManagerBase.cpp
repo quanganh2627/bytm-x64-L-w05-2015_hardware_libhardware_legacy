@@ -2205,6 +2205,7 @@ void AudioPolicyManagerBase::checkOutputForAllStrategies()
     checkOutputForStrategy(STRATEGY_SONIFICATION_RESPECTFUL);
     checkOutputForStrategy(STRATEGY_MEDIA);
     checkOutputForStrategy(STRATEGY_DTMF);
+    checkOutputForStrategy(STRATEGY_FM);
 }
 
 audio_io_handle_t AudioPolicyManagerBase::getA2dpOutput()
@@ -2299,6 +2300,8 @@ audio_devices_t AudioPolicyManagerBase::getNewDevice(audio_io_handle_t output, b
         device = getDeviceForStrategy(STRATEGY_MEDIA, fromCache);
     } else if (outputDesc->isStrategyActive(STRATEGY_DTMF)) {
         device = getDeviceForStrategy(STRATEGY_DTMF, fromCache);
+    } else if (outputDesc->isStrategyActive(STRATEGY_FM)) {
+        device = getDeviceForStrategy(STRATEGY_FM, fromCache);
     }
 
     ALOGV("getNewDevice() selected device %x", device);
@@ -2340,6 +2343,10 @@ AudioPolicyManagerBase::routing_strategy AudioPolicyManagerBase::getStrategy(
         return STRATEGY_SONIFICATION_RESPECTFUL;
     case AudioSystem::DTMF:
         return STRATEGY_DTMF;
+    // PEKALL FMR begin:
+    case AudioSystem::FM:
+        return STRATEGY_FM;
+    // PEKALL FMR end
     default:
         ALOGE("unknown stream type");
     case AudioSystem::SYSTEM:
@@ -2347,9 +2354,6 @@ AudioPolicyManagerBase::routing_strategy AudioPolicyManagerBase::getStrategy(
         // while key clicks are played produces a poor result
     case AudioSystem::TTS:
     case AudioSystem::MUSIC:
-    // PEKALL FMR begin:
-    case AudioSystem::FM:
-    // PEKALL FMR end
         return STRATEGY_MEDIA;
     case AudioSystem::ENFORCED_AUDIBLE:
         return STRATEGY_ENFORCED_AUDIBLE;
@@ -2408,6 +2412,13 @@ audio_devices_t AudioPolicyManagerBase::getDeviceForStrategy(routing_strategy st
         }
         // when in call, DTMF and PHONE strategies follow the same rules
         // FALL THROUGH
+
+    case STRATEGY_FM:
+        if (!isInCall()) {
+            // when off call, DTMF strategy follows the same rules as MEDIA strategy
+            device = getDeviceForStrategy(STRATEGY_MEDIA, false /*fromCache*/);
+            break;
+        }
 
     case STRATEGY_PHONE:
         // for phone strategy, we first consider the forced use and then the available devices by order
@@ -2629,6 +2640,8 @@ uint32_t AudioPolicyManagerBase::checkDeviceMuteStrategies(AudioOutputDescriptor
     bool tempMute = outputDesc->isActive() && (device != prevDevice);
 
     for (size_t i = 0; i < NUM_STRATEGIES; i++) {
+        if (STRATEGY_FM == i)
+		    continue;
         audio_devices_t curDevice = getDeviceForStrategy((routing_strategy)i, false /*fromCache*/);
         // PEKALL begin: device FMR+speaker/FMR+headset should be same physical
         // device with speaker/headset. Need not wait for the audio in pcm buffer
