@@ -132,6 +132,9 @@ static char supplicant_name[PROPERTY_VALUE_MAX];
 /* Is either SUPP_PROP_NAME or P2P_PROP_NAME */
 static char supplicant_prop_name[PROPERTY_KEY_MAX];
 
+static struct wpa_ctrl *ctrl_conn_hostapd;
+static struct wpa_ctrl *monitor_conn_hostapd;
+
 static int insmod(const char *filename, const char *args)
 {
     void *module;
@@ -804,4 +807,123 @@ int wifi_change_fw_path(const char *fwpath)
     }
     close(fd);
     return ret;
+}
+
+int wifi_connect_to_hostapd()
+{
+    char ifname[256];
+
+    /* For connection with the ctrl_interface of hostap daemon,
+       the fixed value of socket name needs to be defined. And We will
+       use "wpa_wlan1" as socket name for hostap daemon while
+       supplicant uses "wpa_wlan0" for this  */
+    strcpy(ifname, "wlan0");
+
+    ctrl_conn_hostapd = wpa_ctrl_open(ifname);
+    if (ctrl_conn_hostapd == NULL) {
+        ALOGE("Unable to open connection to hostapd on \"%s\": %s",
+             ifname, strerror(errno));
+        return -1;
+    }
+    monitor_conn_hostapd = wpa_ctrl_open(ifname);
+    if (monitor_conn_hostapd == NULL) {
+        ALOGE("Unable to open connection to monitor_conn of hostapd on %s", ifname);
+        wpa_ctrl_close(ctrl_conn_hostapd);
+        ctrl_conn_hostapd = NULL;
+        return -1;
+    }
+    if (wpa_ctrl_attach(monitor_conn_hostapd) != 0) {
+        ALOGE("Unable to attatch  connection to monitor_conn of hostapd on %s",ifname);
+        wpa_ctrl_close(monitor_conn_hostapd);
+        wpa_ctrl_close(ctrl_conn_hostapd);
+        ctrl_conn_hostapd = monitor_conn_hostapd = NULL;
+        return -1;
+    }
+
+    if (socketpair(AF_UNIX, SOCK_STREAM, 0, exit_sockets) == -1) {
+        ALOGE("Unable to socketpair to hostapd on %s", ifname);
+        wpa_ctrl_close(monitor_conn_hostapd);
+        wpa_ctrl_close(ctrl_conn_hostapd);
+        ctrl_conn_hostapd = monitor_conn_hostapd = NULL;
+        return -1;
+    }
+
+    return 0;
+}
+
+void wifi_close_hostapd_connection()
+{
+
+    if (ctrl_conn_hostapd != NULL) {
+        wpa_ctrl_close(ctrl_conn_hostapd);
+        ctrl_conn_hostapd = NULL;
+    }
+
+    if (monitor_conn_hostapd != NULL) {
+        wpa_ctrl_close(monitor_conn_hostapd);
+        monitor_conn_hostapd = NULL;
+    }
+
+    if (exit_sockets[0] >= 0) {
+        close(exit_sockets[0]);
+        exit_sockets[0] = -1;
+    }
+
+    if (exit_sockets[1] >= 0) {
+        close(exit_sockets[1]);
+        exit_sockets[1] = -1;
+    }
+}
+
+int wifi_configure_AP_RT_coex(const char *cmd, char *addr, size_t *addr_len)
+{
+    char  *pos, reply[1024];
+    size_t reply_len;
+    int ret;
+    int rs = 0;
+
+    if (!addr_len) {
+        ALOGE("addr_len is null\n");
+        return -1;
+    }
+
+    if (ctrl_conn_hostapd == NULL) {
+        ALOGV("Not connected to hostapd, trying to connect\n");
+
+        if (wifi_connect_to_hostapd() == -1) {
+            ALOGV("Not connected to hostapd - \"%s\" command dropped.\n", cmd);
+            return -1;
+        }
+    }
+
+    reply_len = sizeof(reply) - 1;
+    ALOGV(cmd);
+
+    ret = wpa_ctrl_request(ctrl_conn_hostapd, cmd, strlen(cmd), reply, &reply_len, NULL);
+    if (ret == -2) {
+        ALOGD("'%s' command timed out.\n", cmd);
+        /* unblocks the monitor receive socket for termination */
+        TEMP_FAILURE_RETRY(write(exit_sockets[0], "T", 1));
+        rs = -2;
+        goto close_sock;
+    } else if (ret < 0 || strncmp(reply, "FAIL", 4) == 0) {
+        ALOGI("REPLY: FAIL\n");
+        rs = -1;
+        goto close_sock;
+    }
+
+    ALOGV(reply, &reply_len);
+
+    reply[reply_len] = '\0';
+
+    pos = reply;
+    while (*pos != '\0' && *pos != '\n')
+        pos++;
+    *pos = '\0';
+    strlcpy(addr, reply, *addr_len);
+
+ close_sock:
+    wifi_close_hostapd_connection();
+
+    return rs;
 }
