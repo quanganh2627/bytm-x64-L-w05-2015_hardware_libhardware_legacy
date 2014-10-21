@@ -72,6 +72,19 @@ int wifi_connect_to_supplicant();
 void wifi_close_supplicant_connection();
 
 /**
+ * wifi_configure_AP_RT_coex() issues a command to configure
+ * WLAN/LTE Real Time coexistence for WLAN softAP mode
+ * @param command is the string command
+ * @param addr is a buffer to receive a reply string
+ * @param addr_len on entry, this is the maximum length of
+ *        the reply buffer. On exit, the number of
+ *        bytes in the reply buffer.
+ *
+ * @return 0 if successful, < 0 if an error.
+ */
+int wifi_configure_AP_RT_coex(const char *cmd, char *addr, size_t *addr_len);
+
+/**
  * wifi_wait_for_event() performs a blocking call to 
  * get a Wi-Fi event and returns a string representing 
  * a Wi-Fi event when it occurs.
