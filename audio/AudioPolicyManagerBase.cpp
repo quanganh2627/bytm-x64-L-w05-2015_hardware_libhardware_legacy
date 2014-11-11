@@ -980,6 +980,16 @@ audio_io_handle_t AudioPolicyManagerBase::getInput(int inputSource,
 status_t AudioPolicyManagerBase::startInput(audio_io_handle_t input)
 {
     ALOGV("startInput() input %d", input);
+    Vector<audio_io_handle_t> removableInputs;
+    for (size_t i = 0; i < mInputs.size(); i++) {
+        AudioInputDescriptor *descriptor = mInputs.valueAt(i);
+        if (descriptor && (descriptor->mRefCount > 0)) {
+            removableInputs.add(mInputs.keyAt(i));
+        }
+    }
+    for (size_t i = 0; i < removableInputs.size(); i++) {
+        releaseInput(removableInputs[i]);
+    }
     ssize_t index = mInputs.indexOfKey(input);
     if (index < 0) {
         ALOGW("startInput() unknown input %d", input);
