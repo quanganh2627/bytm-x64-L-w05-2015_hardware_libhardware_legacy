@@ -3218,6 +3218,12 @@ const AudioPolicyManagerBase::VolumeCurvePoint
     {0, -24.0f}, {33, -16.0f}, {66, -8.0f}, {100, 0.0f}
 };
 
+// PEKALL FMR begin
+const AudioPolicyManagerBase::VolumeCurvePoint
+    AudioPolicyManagerBase::sFMVolumeCurve[AudioPolicyManagerBase::VOLCNT] = {
+    {1, -46.5f}, {28, -36.0f}, {64, -18.0f}, {88, -6.0f}
+};
+// PEKALL FMR end
 const AudioPolicyManagerBase::VolumeCurvePoint
             *AudioPolicyManagerBase::sVolumeProfiles[AUDIO_STREAM_CNT]
                                                    [AudioPolicyManagerBase::DEVICE_CATEGORY_CNT] = {
@@ -3271,6 +3277,13 @@ const AudioPolicyManagerBase::VolumeCurvePoint
         sSpeakerMediaVolumeCurve, // DEVICE_CATEGORY_SPEAKER
         sDefaultMediaVolumeCurve  // DEVICE_CATEGORY_EARPIECE
     },
+    // PEKALL FMR begin
+    { // AUDIO_STREAM_FM
+        sFMVolumeCurve, // DEVICE_CATEGORY_HEADSET
+        sFMVolumeCurve, // DEVICE_CATEGORY_SPEAKER
+        sFMVolumeCurve  // DEVICE_CATEGORY_EARPIECE
+    },
+    // PEKALL FMR end
 };
 
 void AudioPolicyManagerBase::initializeVolumeCurves()
@@ -3304,15 +3317,6 @@ float AudioPolicyManagerBase::computeVolume(int stream,
     AudioOutputDescriptor *outputDesc = mOutputs.valueFor(output);
     StreamDescriptor &streamDesc = mStreams[stream];
 
-    // PEKALL FMR begin:
-    // Use linear volume for FM
-    if (stream == AudioSystem::FM) {
-        volume = (float)(index - streamDesc.mIndexMin) /
-            (float)(streamDesc.mIndexMax - streamDesc.mIndexMin);
-        return volume;
-    }
-    // PEKALL FMR end
-
     if (device == AUDIO_DEVICE_NONE) {
         device = outputDesc->device();
     }
@@ -3328,7 +3332,6 @@ float AudioPolicyManagerBase::computeVolume(int stream,
     }
 
     volume = volIndexToAmpl(device, streamDesc, index);
-
     // if a headset is connected, apply the following rules to ring tones and notifications
     // to avoid sound level bursts in user's ears:
     // - always attenuate ring tones and notifications volume by 6dB
