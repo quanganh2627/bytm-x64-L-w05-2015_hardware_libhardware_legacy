@@ -258,7 +258,7 @@ public:
         DEVICE_OUT_DGTL_DOCK_HEADSET = 0x1000,
         DEVICE_OUT_DEFAULT = 0x8000,
         // PEKALL FMR begin:
-        DEVICE_OUT_FM = 0x10000,
+        DEVICE_OUT_FM = 0x100000,
         DEVICE_OUT_FM_HEADSET = (DEVICE_OUT_FM | DEVICE_OUT_WIRED_HEADSET),
         DEVICE_OUT_FM_HEADPHONE = (DEVICE_OUT_FM | DEVICE_OUT_WIRED_HEADPHONE),
         DEVICE_OUT_FM_SPEAKER = (DEVICE_OUT_FM | DEVICE_OUT_SPEAKER),
@@ -330,6 +330,11 @@ public:
         FOR_RECORD,
         FOR_DOCK,
         FOR_SYSTEM,
+#ifdef DRD_FMR
+        // INTEL FMR begin:
+        FOR_FM_RADIO,
+        // INTEL FMR end
+#endif /* DRD_FMR */
         NUM_FORCE_USE
     };
 

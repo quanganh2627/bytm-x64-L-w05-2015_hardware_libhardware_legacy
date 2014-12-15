@@ -45,7 +45,11 @@
 #include <hardware_legacy/AudioPolicyManagerBase.h>
 
 namespace android_audio_legacy {
-
+#ifdef DRD_FMR
+  // INTEL FMR begin:
+bool AudioPolicyManagerBase :: mFmIsOn;
+  // INTEL FMR end
+#endif /* DRD_FMR */
 // ----------------------------------------------------------------------------
 // AudioPolicyInterface implementation
 // ----------------------------------------------------------------------------
@@ -495,6 +499,20 @@ void AudioPolicyManagerBase::setForceUse(AudioSystem::force_use usage, AudioSyst
         forceVolumeReeval = true;
         mForceUse[usage] = config;
         break;
+#ifdef DRD_FMR
+        // INTEL FMR begin:
+    case AudioSystem::FOR_FM_RADIO:
+        if (config != AudioSystem::FORCE_NONE && config != AudioSystem::FORCE_SPEAKER &&
+            config != AudioSystem::FORCE_HEADPHONES &&
+            config != AudioSystem::FORCE_WIRED_ACCESSORY)
+        {
+            ALOGW("setForceUse() invalid config %d for FOR_FM_RADIO", config);
+        }
+        forceVolumeReeval = true;
+        mForceUse[usage] = config;
+        break;
+        // INTEL FMR end
+#endif /* DRD_FMR */
     default:
         ALOGW("setForceUse() invalid usage %d", usage);
         break;
@@ -1586,6 +1604,72 @@ bool AudioPolicyManagerBase::isOffloadSupported(const audio_offload_info_t& offl
     return (profile != NULL);
 }
 
+// INTEL FMR begin:
+/* Below public functions should not be guarded with compiler flag.
+ * to avoid compilation error on non FMR  build. */
+status_t AudioPolicyManagerBase::setParameters(const String8 &keyValuePairs)
+{
+    AudioParameter param = AudioParameter(keyValuePairs);
+    return doParseParameters(param);
+}
+
+status_t AudioPolicyManagerBase::doParseParameters(AudioParameter &param)
+{
+#ifdef DRD_FMR
+    doSetFmParameters(param);
+#endif /* DRD_FMR */
+
+    return NO_ERROR;
+}
+
+#ifdef DRD_FMR
+void AudioPolicyManagerBase::doSetFmParameters(AudioParameter& param)
+{
+    // Search FM parameter (B+ specific)
+    static const char* FM_ROUTE_PARAM_KEY = "route-fm";
+
+    String8 key = String8(FM_ROUTE_PARAM_KEY);
+    String8 strFmRoute;
+
+    ALOGE("AudioPolicyManagerBase::doSetFmParameters");
+
+    if (param.get(key, strFmRoute) == NO_ERROR) {
+
+        // Remove parameter
+        param.remove(key);
+
+        // Search FM parameter values (B+ specific)
+        static const char* FM_ROUTE_REQUESTING_SPEAKER = "speaker";
+        static const char* FM_ROUTE_REQUESTING_HEADSET = "headset";
+
+        bool isFmOn = false;
+        bool isFmForcedOnSpeaker = false;
+        if (strFmRoute == FM_ROUTE_REQUESTING_SPEAKER) {
+
+            ALOGD("%s: FM ON, forced on speaker", __FUNCTION__);
+            isFmOn = true;
+            isFmForcedOnSpeaker = true;
+
+        } else if (strFmRoute == FM_ROUTE_REQUESTING_HEADSET) {
+
+            ALOGD("%s: FM ON on headset", __FUNCTION__);
+            isFmOn = true;
+        }
+
+        if (mFmIsOn != isFmOn) {
+            mFmIsOn = isFmOn;
+            ALOGD("FM mode is %s, %srement MUSIC stream count", mFmIsOn? "on" : "off", mFmIsOn? "inc" : "dec");
+            AudioOutputDescriptor *outputDesc = mOutputs.valueFor(mPrimaryOutput);
+            outputDesc->changeRefCount(AudioSystem::MUSIC, mFmIsOn? 1 : -1);
+        }
+
+        setForceUse(AudioSystem::FOR_FM_RADIO, isFmForcedOnSpeaker ? AudioSystem::FORCE_SPEAKER :
+                AudioSystem::FORCE_NONE);
+    }
+}
+// INTEL FMR end
+#endif /* DRD_FMR */
+
 // ----------------------------------------------------------------------------
 // AudioPolicyManagerBase
 // ----------------------------------------------------------------------------
@@ -1607,6 +1691,11 @@ AudioPolicyManagerBase::AudioPolicyManagerBase(AudioPolicyClientInterface *clien
     // PEKALL FMR end
 {
     mpClientInterface = clientInterface;
+#ifdef DRD_FMR
+    // INTEL FMR begin:
+    mFmIsOn = false;
+    // INTEL FMR end
+#endif /* DRD_FMR */
 
     for (int i = 0; i < AudioSystem::NUM_FORCE_USE; i++) {
         mForceUse[i] = AudioSystem::FORCE_NONE;
@@ -2411,6 +2500,27 @@ void AudioPolicyManagerBase::checkOutputForStrategy(routing_strategy strategy)
                 }
             }
         }
+#ifdef DRD_FMR
+        // Move effects associated to this strategy from previous output to new output
+        if (strategy == STRATEGY_FM_RADIO) {
+            audio_io_handle_t fxOutput = selectOutputForEffects(dstOutputs);
+            SortedVector<audio_io_handle_t> moved;
+            for (size_t i = 0; i < mEffects.size(); i++) {
+                EffectDescriptor *desc = mEffects.valueAt(i);
+                if (desc->mSession == AUDIO_SESSION_OUTPUT_MIX &&
+                        desc->mIo != fxOutput) {
+                    if (moved.indexOf(desc->mIo) < 0) {
+                        ALOGV("checkOutputForStrategy() moving effect %d to output %d",
+                              mEffects.keyAt(i), fxOutput);
+                        mpClientInterface->moveEffects(AUDIO_SESSION_OUTPUT_MIX, desc->mIo,
+                                                       fxOutput);
+                        moved.add(desc->mIo);
+                    }
+                    desc->mIo = fxOutput;
+                }
+            }
+        }
+#endif /* DRD_FMR */
         // Move tracks associated to this strategy from previous output to new output
         for (int i = 0; i < (int)AudioSystem::NUM_STREAM_TYPES; i++) {
             if (getStrategy((AudioSystem::stream_type)i) == strategy) {
@@ -2427,7 +2537,13 @@ void AudioPolicyManagerBase::checkOutputForAllStrategies()
     checkOutputForStrategy(STRATEGY_SONIFICATION);
     checkOutputForStrategy(STRATEGY_SONIFICATION_RESPECTFUL);
     checkOutputForStrategy(STRATEGY_MEDIA);
+#ifdef DRD_FMR
+    // INTEL FMR begin:
+    checkOutputForStrategy(STRATEGY_FM_RADIO);
+    // INTEL FMR end
+#endif /* DRD_FMR */
     checkOutputForStrategy(STRATEGY_DTMF);
+    checkOutputForStrategy(STRATEGY_FM);
 }
 
 audio_io_handle_t AudioPolicyManagerBase::getA2dpOutput()
@@ -2522,6 +2638,16 @@ audio_devices_t AudioPolicyManagerBase::getNewDevice(audio_io_handle_t output, b
         device = getDeviceForStrategy(STRATEGY_MEDIA, fromCache);
     } else if (outputDesc->isStrategyActive(STRATEGY_DTMF)) {
         device = getDeviceForStrategy(STRATEGY_DTMF, fromCache);
+#ifdef DRD_FMR
+      // INTEL FMR begin:
+    } else if (outputDesc->isStrategyActive(STRATEGY_FM_RADIO)) {
+        device = getDeviceForStrategy(STRATEGY_FM_RADIO, fromCache);
+        ALOGV("getNewDevice() STRATEGY_FM_RADIO,, %x", device);
+      // INTEL FMR end
+#endif /* DRD_FMR */
+    } else if (outputDesc->isStrategyActive(STRATEGY_FM)) {
+        device = getDeviceForStrategy(STRATEGY_FM, fromCache);
+        ALOGV("getNewDevice() STRATEGY_FM, %x", device);
     }
 
     ALOGV("getNewDevice() selected device %x", device);
@@ -2563,6 +2689,10 @@ AudioPolicyManagerBase::routing_strategy AudioPolicyManagerBase::getStrategy(
         return STRATEGY_SONIFICATION_RESPECTFUL;
     case AudioSystem::DTMF:
         return STRATEGY_DTMF;
+    // PEKALL FMR begin:
+    case AudioSystem::FM:
+        return STRATEGY_FM;
+    // PEKALL FMR end
     default:
         ALOGE("unknown stream type");
     case AudioSystem::SYSTEM:
@@ -2570,9 +2700,13 @@ AudioPolicyManagerBase::routing_strategy AudioPolicyManagerBase::getStrategy(
         // while key clicks are played produces a poor result
     case AudioSystem::TTS:
     case AudioSystem::MUSIC:
-    // PEKALL FMR begin:
-    case AudioSystem::FM:
-    // PEKALL FMR end
+#ifdef DRD_FMR
+        // INTEL FMR begin:
+        if (mFmIsOn)
+            return STRATEGY_FM_RADIO;
+        // INTEL FMR end
+        else
+#endif /* DRD_FMR */
         return STRATEGY_MEDIA;
     case AudioSystem::ENFORCED_AUDIBLE:
         return STRATEGY_ENFORCED_AUDIBLE;
@@ -2625,12 +2759,30 @@ audio_devices_t AudioPolicyManagerBase::getDeviceForStrategy(routing_strategy st
 
     case STRATEGY_DTMF:
         if (!isInCall()) {
+#ifdef DRD_FMR
+            // INTEL FMR begin:
+            // If FM is on, follow the FM_RADIO strategy policy
+            if (mFmIsOn) {
+                device = getDeviceForStrategy(STRATEGY_FM_RADIO, false /*fromCache*/);
+                ALOGE("STRATEGY_DTMF: STRATEGY_FM_RADIO, device[%x]", device);
+                break;
+            }
+            // INTEL FMR end
+#endif /* DRD_FMR */
             // when off call, DTMF strategy follows the same rules as MEDIA strategy
             device = getDeviceForStrategy(STRATEGY_MEDIA, false /*fromCache*/);
             break;
         }
         // when in call, DTMF and PHONE strategies follow the same rules
         // FALL THROUGH
+
+    case STRATEGY_FM:
+        if (!isInCall()) {
+            // when off call, DTMF strategy follows the same rules as MEDIA strategy
+            device = getDeviceForStrategy(STRATEGY_MEDIA, false /*fromCache*/);
+            ALOGE("STRATEGY_DTMF: STRATEGY_FM, device[%x]", device);
+            break;
+        }
 
     case STRATEGY_PHONE:
         // for phone strategy, we first consider the forced use and then the available devices by order
@@ -2751,6 +2903,13 @@ audio_devices_t AudioPolicyManagerBase::getDeviceForStrategy(routing_strategy st
             device2 = mAvailableOutputDevices & AudioSystem::DEVICE_OUT_SPEAKER;
         }
         // PEKALL FMR end
+#ifdef DRD_FMR
+        // INTEL FMR begin:
+        if (mFmIsOn) {
+            device2 = getDeviceForStrategy(STRATEGY_FM_RADIO, false /*fromCache*/);
+        }
+        // INTEL FMR end
+#endif /* DRD_FMR */
         if ((device2 == AUDIO_DEVICE_NONE) &&
                 mHasA2dp && (mForceUse[AudioSystem::FOR_MEDIA] != AudioSystem::FORCE_NO_BT_A2DP) &&
                 (getA2dpOutput() != 0) && !mA2dpSuspended
@@ -2806,6 +2965,33 @@ audio_devices_t AudioPolicyManagerBase::getDeviceForStrategy(routing_strategy st
             ALOGE("getDeviceForStrategy() no device found for STRATEGY_MEDIA");
         }
         } break;
+#ifdef DRD_FMR
+        // INTEL FMR begin:
+    case STRATEGY_FM_RADIO: {
+
+        uint32_t device2 = AUDIO_DEVICE_NONE;
+
+        if (mForceUse[AudioSystem::FOR_FM_RADIO] == AudioSystem::FORCE_SPEAKER) {
+            ALOGD("getDeviceForStrategy():Force use of SPEAKER for STRATEGY_FM_RADIO.");
+            device2 = mAvailableOutputDevices & AudioSystem::DEVICE_OUT_SPEAKER;
+        }
+        if (device2 == AUDIO_DEVICE_NONE) {
+            device2 = mAvailableOutputDevices & AudioSystem::DEVICE_OUT_WIRED_HEADPHONE;
+        }
+        if (device2 == AUDIO_DEVICE_NONE) {
+            device2 = mAvailableOutputDevices & AudioSystem::DEVICE_OUT_WIRED_HEADSET;
+        }
+
+        device |= device2;
+        if (device) break;
+        device = mDefaultOutputDevice;
+        if (device == AUDIO_DEVICE_NONE) {
+            ALOGE("getDeviceForStrategy() no device found for STRATEGY_FM_RADIO");
+        }
+    }
+        break;
+        // INTEL FMR end
+#endif /* DRD_FMR */
 
     default:
         ALOGW("getDeviceForStrategy() unknown strategy: %d", strategy);
@@ -2852,6 +3038,8 @@ uint32_t AudioPolicyManagerBase::checkDeviceMuteStrategies(AudioOutputDescriptor
     bool tempMute = outputDesc->isActive() && (device != prevDevice);
 
     for (size_t i = 0; i < NUM_STRATEGIES; i++) {
+        if (STRATEGY_FM == i)
+		    continue;
         audio_devices_t curDevice = getDeviceForStrategy((routing_strategy)i, false /*fromCache*/);
         // PEKALL begin: device FMR+speaker/FMR+headset should be same physical
         // device with speaker/headset. Need not wait for the audio in pcm buffer
@@ -2975,9 +3163,15 @@ uint32_t AudioPolicyManagerBase::setOutputDevice(audio_io_handle_t output,
     // do the routing
     param.addInt(String8(AudioParameter::keyRouting), (int)device);
     mpClientInterface->setParameters(output, param.toString(), delayMs);
-
+#ifdef DRD_FMR
+    // INTEL FMR begin:
+    // update stream volumes according to new device, force reevaluation if FM is in use
+    applyStreamVolumes(output, device, delayMs, mFmIsOn);
+    // INTEL FMR end
+#else
     // update stream volumes according to new device
     applyStreamVolumes(output, device, delayMs);
+#endif /* DRD_FMR */
 
     return muteWaitMs;
 }
@@ -3033,6 +3227,10 @@ audio_devices_t AudioPolicyManagerBase::getDeviceForInputSource(int inputSource)
         if (mForceUse[AudioSystem::FOR_RECORD] == AudioSystem::FORCE_BT_SCO &&
             mAvailableInputDevices & AUDIO_DEVICE_IN_BLUETOOTH_SCO_HEADSET) {
             device = AUDIO_DEVICE_IN_BLUETOOTH_SCO_HEADSET;
+#ifdef DRD_FMR
+        } else if (mFmIsOn) {
+            device = AUDIO_DEVICE_IN_FM_RX;
+#endif /* DRD_FMR */
         } else if (mAvailableInputDevices & AUDIO_DEVICE_IN_WIRED_HEADSET) {
             device = AUDIO_DEVICE_IN_WIRED_HEADSET;
         } else if (mAvailableInputDevices & AUDIO_DEVICE_IN_USB_DEVICE) {
@@ -3448,6 +3646,15 @@ status_t AudioPolicyManagerBase::checkAndSetVolume(int stream,
             force) {
         mOutputs.valueFor(output)->mCurVolume[stream] = volume;
         ALOGVV("checkAndSetVolume() for output %d stream %d, volume %f, delay %d", output, stream, volume, delayMs);
+#ifdef DRD_FMR
+        // INTEL FMR begin:
+        if (mFmIsOn && (stream == AudioSystem::MUSIC)) {
+            AudioParameter param;
+            param.addFloat(String8("fm-volume"),volume);
+            mpClientInterface->setParameters(0, param.toString());
+        }
+        // INTEL FMR end
+#endif /* DRD_FMR */
         // Force VOICE_CALL to track BLUETOOTH_SCO stream volume when bluetooth audio is
         // enabled
         if (stream == AudioSystem::BLUETOOTH_SCO) {

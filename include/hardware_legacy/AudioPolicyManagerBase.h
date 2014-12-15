@@ -149,7 +149,9 @@ public:
         virtual status_t dump(int fd);
 
         virtual bool isOffloadSupported(const audio_offload_info_t& offloadInfo);
-
+        // INTEL FMR begin:
+        virtual status_t setParameters(const String8 &keyValuePairs);
+        // INTEL FMR end
 protected:
 
         enum routing_strategy {
@@ -159,6 +161,10 @@ protected:
             STRATEGY_SONIFICATION_RESPECTFUL,
             STRATEGY_DTMF,
             STRATEGY_ENFORCED_AUDIBLE,
+#ifdef DRD_FMR
+            STRATEGY_FM_RADIO,
+#endif /* DRD_FMR */
+            STRATEGY_FM,
             NUM_STRATEGIES
         };
 
@@ -528,8 +534,9 @@ protected:
         void loadGlobalConfig(cnode *root);
         status_t loadAudioPolicyConfig(const char *path);
         void defaultAudioPolicyConfig(void);
-
-
+        // INTEL FMR begin:
+        virtual status_t doParseParameters(AudioParameter &param);
+        // INTEL FMR end
         AudioPolicyClientInterface *mpClientInterface;  // audio policy client interface
         audio_io_handle_t mPrimaryOutput;              // primary output handle
         // list of descriptors for outputs currently opened
@@ -575,7 +582,9 @@ protected:
                                 // to boost soft sounds, used to adjust volume curves accordingly
 
         Vector <HwModule *> mHwModules;
-
+#ifdef DRD_FMR
+        static bool mFmIsOn; // true if FM is on going
+#endif /* DRD_FMR */
 #ifdef AUDIO_POLICY_TEST
         Mutex   mLock;
         Condition mWaitWorkCV;
@@ -599,6 +608,9 @@ protected:
         // PEKALL FMR end
 
 private:
+#ifdef DRD_FMR
+        void doSetFmParameters(AudioParameter& param);
+#endif /* DRD_FMR */
         static float volIndexToAmpl(audio_devices_t device, const StreamDescriptor& streamDesc,
                 int indexInUi);
         // updates device caching and output for streams that can influence the
