@@ -673,6 +673,8 @@ audio_io_handle_t AudioPolicyManagerBase::getOutput(AudioSystem::stream_type str
                                     AudioSystem::output_flags flags,
                                     const audio_offload_info_t *offloadInfo)
 {
+    char propValue[PROPERTY_VALUE_MAX];
+
     ALOGI("APM: getOutput");
 
     if (!isStreamValid(stream)) {
@@ -693,6 +695,9 @@ audio_io_handle_t AudioPolicyManagerBase::getOutput(AudioSystem::stream_type str
 #else
     routing_strategy strategy = getStrategy((AudioSystem::stream_type)stream);
 #endif //BGM_ENABLED
+
+    property_get("audio.dynoutput.mode", propValue, "0");
+    mDynOutputMode = (audio_dyn_output_mode_t)atoi(propValue);
 
     audio_devices_t device = getDeviceForStrategy(strategy, false /*fromCache*/);
     ALOGV("getOutput() device %d, stream %d, samplingRate %d, format %x, channelMask %x, flags %x",
@@ -1851,8 +1856,11 @@ AudioPolicyManagerBase::AudioPolicyManagerBase(AudioPolicyClientInterface *clien
     mA2dpSuspended(false), mHasA2dp(false), mHasUsb(false), mHasRemoteSubmix(false),
     mSpeakerDrcEnabled(false),
     mIsBGMEnabled(false),
-    mBGMOutput(0)
+    mBGMOutput(0),
+    mDynOutputMode(AUDIO_DYN_OUTPUT_MODE_NONE)
 {
+    char propValue[PROPERTY_VALUE_MAX];
+
     mpClientInterface = clientInterface;
 
     for (int i = 0; i < AudioSystem::NUM_FORCE_USE; i++) {
@@ -1878,6 +1886,9 @@ AudioPolicyManagerBase::AudioPolicyManagerBase(AudioPolicyClientInterface *clien
 
     // must be done after reading the policy
     initializeVolumeCurves();
+
+    property_get("audio.dynoutput.mode", propValue, "0");
+    mDynOutputMode = (audio_dyn_output_mode_t)atoi(propValue);
 
     // open all output streams needed to access attached devices
     for (size_t i = 0; i < mHwModules.size(); i++) {
@@ -2981,6 +2992,9 @@ audio_devices_t AudioPolicyManagerBase::getDeviceForStrategy(routing_strategy st
         }
 #endif//BGM_ENABLED
 
+        if (device == AUDIO_DEVICE_NONE && mDynOutputMode == AUDIO_DYN_OUTPUT_MODE_DUP)
+            device = mAvailableOutputDevices & AudioSystem::DEVICE_OUT_SPEAKER;
+
         if ((device2 == AUDIO_DEVICE_NONE) &&
                 mHasA2dp && (mForceUse[AudioSystem::FOR_MEDIA] != AudioSystem::FORCE_NO_BT_A2DP) &&
                 (getA2dpOutput() != 0) && !mA2dpSuspended) {
@@ -3026,7 +3040,8 @@ audio_devices_t AudioPolicyManagerBase::getDeviceForStrategy(routing_strategy st
             device2 = mAvailableOutputDevices & AUDIO_DEVICE_OUT_SPEAKER;
         }
         // device is DEVICE_OUT_SPEAKER if we come from case STRATEGY_SONIFICATION or
-        // STRATEGY_ENFORCED_AUDIBLE or STRATEGY_SONIFICATION_LOCAL, AUDIO_DEVICE_NONE otherwise
+        // STRATEGY_ENFORCED_AUDIBLE or STRATEGY_SONIFICATION_LOCAL or mDynOutputMode is DUP mode,
+        // AUDIO_DEVICE_NONE otherwise
         device |= device2;
         if (device) break;
         device = mDefaultOutputDevice;
@@ -4467,7 +4482,6 @@ const struct StringToEnum sInChannelsNameToEnumTable[] = {
     STRING_TO_ENUM(AUDIO_CHANNEL_IN_STEREO),
     STRING_TO_ENUM(AUDIO_CHANNEL_IN_FRONT_BACK),
 };
-
 
 uint32_t AudioPolicyManagerBase::stringToEnum(const struct StringToEnum *table,
                                               size_t size,

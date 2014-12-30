@@ -626,6 +626,8 @@ protected:
         bool     mIsBGMEnabled;
         audio_io_handle_t mBGMOutput;
 
+        audio_dyn_output_mode_t mDynOutputMode;
+
 #ifdef DOLBY_UDC
         enum HdmiDeviceCapability {
             HDMI_8,
